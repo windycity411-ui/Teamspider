@@ -29,7 +29,7 @@ export function gs(n){
  *  @param {number} p.overtimeHours  연장 근로시간
  *  @param {number} p.nightHours     야간 시간대(22~06) 근로시간
  *  @param {boolean} p.holiday       휴일 근로 여부
- *  @param {number} p.monthDays      당월 누적 출역일수(본일 포함)
+ *  @param {number} p.monthDays      당월 누적 출퇴근일수(본일 포함)
  *  @param {number} p.monthHours     당월 누적 근로시간(본일 포함)
  *  @param {object} p.s              기준정보(SETTINGS)
  *  @param {boolean} p.allowance     비과세 수당 지급 여부 (기본 true)
@@ -94,10 +94,10 @@ export function calcDay(p){
   // 경고 — 연금·건보 적용 임박
   const warnings = [];
   if(!insuranceApplies && days === (s.pensionMinDays || 8) - 1){
-    warnings.push(`당월 출역 ${days}일 — 1일 추가 시 국민연금·건강보험이 당월 전체에 소급 적용됨`);
+    warnings.push(`당월 출퇴근 ${days}일 — 1일 추가 시 국민연금·건강보험이 당월 전체에 소급 적용됨`);
   }
   if(insuranceApplies && days === (s.pensionMinDays || 8)){
-    warnings.push(`당월 출역 ${days}일 도달 — 국민연금·건강보험 적용 개시(당월 소급)`);
+    warnings.push(`당월 출퇴근 ${days}일 도달 — 국민연금·건강보험 적용 개시(당월 소급)`);
   }
 
   return {

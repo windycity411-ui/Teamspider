@@ -61,7 +61,7 @@ export const SETTINGS_DEFAULT = {
   pensionRate:    0.045,    // 국민연금 근로자부담
   healthRate:     0.03545,  // 건강보험 근로자부담
   ltCareRate:     0.1295,   // 장기요양(건강보험료 대비)
-  pensionMinDays: 8,        // 월 출역 O일 이상이면 연금·건보 적용
+  pensionMinDays: 8,        // 월 출퇴근 O일 이상이면 연금·건보 적용
   pensionMinHours:60,       // 또는 월 O시간 이상
 
   dayDeduction:   150000,   // 일용근로 근로소득공제(1일)
@@ -98,7 +98,7 @@ export const TRADES_DEFAULT = [
 export const DOC_TYPES = [
   { key:'id',        label:'신분증 사본',          required:true,  note:'주민등록번호 뒷자리는 가리고 촬영' },
   { key:'bank',      label:'통장 사본',            required:true,  note:'예금주가 본인과 일치해야 함' },
-  { key:'safety',    label:'기초안전보건교육 이수증', required:true, note:'미제출 시 출역 제한' },
+  { key:'safety',    label:'기초안전보건교육 이수증', required:true, note:'미제출 시 출퇴근 제한' },
   { key:'contract',  label:'근로계약서',           required:true,  note:'서명본 촬영 업로드' },
   { key:'health',    label:'건강진단 결과서',       required:false, note:'해당 직종만' },
   { key:'license',   label:'자격증·면허',          required:false, note:'중장비·전기·용접 등' },

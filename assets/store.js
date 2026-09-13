@@ -86,7 +86,7 @@ function seed(){
   ];
   db.users = [dev, l1, l2, ...ws];
 
-  // 이번 달 평일 출역 기록
+  // 이번 달 평일 출퇴근 기록
   const today = new Date();
   const workers = ws.filter(w => w.approved);
   for(let back = 12; back >= 0; back--){
@@ -131,7 +131,7 @@ function seed(){
 
   db.notices = [{
     id: uid(), title: '10월 안전보건교육 실시 안내',
-    body: '10월 정기 안전보건교육을 아래와 같이 실시함.\n\n· 일시: 매주 월요일 07:00 (작업 전)\n· 장소: 현장 사무실 앞 집결\n· 대상: 전 근로자\n\n미참석자는 당일 출역이 제한되므로 반드시 참석 바람.',
+    body: '10월 정기 안전보건교육을 아래와 같이 실시함.\n\n· 일시: 매주 월요일 07:00 (작업 전)\n· 장소: 현장 사무실 앞 집결\n· 대상: 전 근로자\n\n미참석자는 당일 출퇴근이 제한되므로 반드시 참석 바람.',
     target: 'all', popup: true, mustConfirm: true,
     from: todayISO(), to: addDays(todayISO(), 14),
     authorId: l1.id, createdAt: nowISO()
@@ -154,7 +154,7 @@ function seed(){
       period:'상시', location:'경기도 화성시 봉담읍', desc:'아파트 신축 현장 형틀목공 모집함.\n· 근무: 07:00~17:00 (토요일 격주)\n· 식대 별도 지급\n· 기초안전보건교육 이수증 필수',
       contact:'010-1111-0001', open:true, public:true, createdAt:nowISO() },
     { id: uid(), title:'보통인부 (일용) 상시 모집', trade:'보통인부', count:10, rate:160000,
-      period:'일용', location:'경기도 화성시 봉담읍', desc:'현장 정리·자재 운반 보조 인력 모집함. 당일 출역 가능.',
+      period:'일용', location:'경기도 화성시 봉담읍', desc:'현장 정리·자재 운반 보조 인력 모집함. 당일 출퇴근 가능.',
       contact:'010-2222-0001', open:true, public:true, createdAt:nowISO() }
   ];
 
