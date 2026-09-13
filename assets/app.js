@@ -63,14 +63,27 @@ export const confirmBox = (title, msg, okLabel = '확인') =>
     { label:okLabel, value:true, cls:'btn-p' }
   ]});
 
+/* ── 브랜드 마크 ───────────────────────────────────────── */
+export const MARK = (size = 26, inner = true) => `
+  <svg viewBox="0 0 40 40" width="${size}" height="${size}" fill="none" aria-hidden="true">
+    <g stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M20 20 L20 4 M20 20 L31 9 M20 20 L36 20 M20 20 L31 31 M20 20 L20 36 M20 20 L9 31 M20 20 L4 20 M20 20 L9 9"></path>
+      <path d="M20 9 L27.8 12.2 L31 20 L27.8 27.8 L20 31 L12.2 27.8 L9 20 L12.2 12.2 Z"></path>
+      ${inner ? '<path d="M20 14.5 L23.9 16.1 L25.5 20 L23.9 23.9 L20 25.5 L16.1 23.9 L14.5 20 L16.1 16.1 Z"></path>' : ''}
+    </g>
+    <circle cx="20" cy="20" r="2.8" fill="currentColor"></circle>
+  </svg>`;
+
 /* ── 상단바 ────────────────────────────────────────────── */
 export function topbar(user, right = ''){
   const role = ROLES[user?.role];
-  const bar = el('div', { class:'topbar' });
+  const isAdmin = role && role.rank >= 3;
+  const bar = el('div', { class: 'topbar' + (isAdmin ? ' dark' : '') });
   bar.innerHTML = `
     <div class="wrap topbar-in">
       <a class="brand" href="${user ? role.home : 'index.html'}">
-        <span class="mark">工</span><span>노가다의신</span>
+        ${MARK(26)}
+        <span class="wm"><b>팀 스파이더</b><i>TEAM SPIDER</i></span>
       </a>
       <div class="row">
         ${right}
@@ -177,7 +190,7 @@ export async function sendMail({ subject, lines, files = [] }){
     files.length ? '[첨부]' : '',
     ...files.map(f => ` · ${f.fileName}${f.url ? ' — ' + f.url : ''}`),
     '',
-    '— 노가다의신 자동발송'
+    '— 팀 스파이더 자동발송'
   ].filter(Boolean).join('\n');
 
   if(!to){
