@@ -1,5 +1,5 @@
 /* ══════════════════════════════════════════════════════════
-   노가다의신 · 환경 설정
+   팀 스파이더 · 환경 설정
    ──────────────────────────────────────────────────────────
    Firebase 연결 전에는 아래 값이 그대로 비어 있어도 됩니다.
    값이 비어 있으면 자동으로 [데모 모드]로 동작하며,
@@ -13,12 +13,12 @@
    ══════════════════════════════════════════════════════════ */
 
 export const FIREBASE = {
-  apiKey: "",
-  authDomain: "",
-  projectId: "",
-  storageBucket: "",
-  messagingSenderId: "",
-  appId: ""
+  apiKey: "AIzaSyA-EoP34VZGczEGNXBPeeNxaLOZ96NDvLw",
+  authDomain: "teamspider.firebaseapp.com",
+  projectId: "teamspider",
+  storageBucket: "teamspider.firebasestorage.app",
+  messagingSenderId: "908849436613",
+  appId: "1:908849436613:web:97559b6910caa7262e9dac"
 };
 
 /* 데모 모드 판정 — projectId 가 비어 있으면 데모 */
@@ -106,6 +106,22 @@ export const DOC_TYPES = [
 ];
 
 /* ── 서류 자동발송 수신처 ──────────────────────────────── */
+/* Cloud Storage 사용 여부
+   ──────────────────────────────────────────────────────────
+   Firebase Storage 는 종량제(Blaze) 요금제에서만 생성됩니다.
+   요금제를 올리고 Storage 를 만든 뒤 true 로 바꾸면
+   서류 파일 업로드가 활성화됩니다. false 인 동안에는
+   서류 제출 화면이 잠기고 안내 문구가 표시됩니다. */
+export const STORAGE = false;
+
+/* 아이디 로그인용 내부 도메인 — 화면에는 노출되지 않음
+   (Firebase 이메일/비밀번호 인증이 이메일 형식을 요구하므로 아이디를
+    <아이디>@LOGIN_DOMAIN 으로 변환해 저장함) */
+export const LOGIN_DOMAIN = 'teamspider.app';
+
+/* 서류 자동발송 Cloud Function 배포 리전 */
+export const MAIL_REGION = 'asia-northeast3';
+
 export const MAIL = {
   to: '',                      // 회사 서류 접수 이메일
   mode: 'link',                // 'link' = 다운로드 링크 / 'attach' = 첨부

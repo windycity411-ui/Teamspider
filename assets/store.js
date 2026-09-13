@@ -68,21 +68,21 @@ function seed(){
   db.site.name = '봉담 제1현장';
   db.site.address = '경기도 화성시 봉담읍 상리2길 55';
 
-  const mk = (name, role, trade, rate, part, phone, approved = true) => ({
-    id: uid(), name, role, trade, unitRate: rate, part, phone,
+  const mk = (loginId, name, role, trade, rate, part, phone, approved = true) => ({
+    id: uid(), loginId, name, role, trade, unitRate: rate, part, phone,
     approved, createdAt: nowISO(), foreign: false
   });
 
-  const dev  = mk('시스템 관리자', 'dev',  '',        0,      '본사', '010-0000-0000');
-  const l1   = mk('직영 1팀장',   'lead', '형틀목공', 250000, '1팀', '010-1111-0001');
-  const l2   = mk('직영 2팀장',   'lead', '철근공',   250000, '2팀', '010-2222-0001');
+  const dev  = mk('admin',  '시스템 관리자', 'dev',  '',        0,      '본사', '010-0000-0000');
+  const l1   = mk('lead1',  '직영 1팀장',   'lead', '형틀목공', 250000, '1팀', '010-1111-0001');
+  const l2   = mk('lead2',  '직영 2팀장',   'lead', '철근공',   250000, '2팀', '010-2222-0001');
   const ws = [
-    mk('근로자 A', 'worker', '형틀목공',   250000, '1팀', '010-1111-1001'),
-    mk('근로자 B', 'worker', '형틀목공',   250000, '1팀', '010-1111-1002'),
-    mk('근로자 C', 'worker', '보통인부',   160000, '1팀', '010-1111-1003'),
-    mk('근로자 D', 'worker', '철근공',     250000, '2팀', '010-2222-1001'),
-    mk('근로자 E', 'worker', '콘크리트공', 230000, '2팀', '010-2222-1002'),
-    mk('근로자 F', 'worker', '보통인부',   160000, '2팀', '010-2222-1003', false)
+    mk('workerA', '근로자 A', 'worker', '형틀목공',   250000, '1팀', '010-1111-1001'),
+    mk('workerB', '근로자 B', 'worker', '형틀목공',   250000, '1팀', '010-1111-1002'),
+    mk('workerC', '근로자 C', 'worker', '보통인부',   160000, '1팀', '010-1111-1003'),
+    mk('workerD', '근로자 D', 'worker', '철근공',     250000, '2팀', '010-2222-1001'),
+    mk('workerE', '근로자 E', 'worker', '콘크리트공', 230000, '2팀', '010-2222-1002'),
+    mk('workerF', '근로자 F', 'worker', '보통인부',   160000, '2팀', '010-2222-1003', false)
   ];
   db.users = [dev, l1, l2, ...ws];
 
@@ -193,6 +193,42 @@ export const store = {
     ]);
     const app = initializeApp(FIREBASE);
     fb = { app, fs, au, st, db: fs.getFirestore(app), auth: au.getAuth(app), storage: st.getStorage(app) };
+  },
+
+  /** Firebase 내부 참조 (auth.js 전용) */
+  fb(){ return fb; },
+
+  /** 사용자 문서를 Auth UID 로 생성·갱신 — 보안규칙이 uid 로 본인을 판정함 */
+  async setUser(uid, data, merge = true){
+    if(DEMO){
+      const r = (demoDb.users = demoDb.users || []).find(x => x.id === uid);
+      if(r) Object.assign(r, data); else demoDb.users.push({ id: uid, ...data });
+      saveDemo(demoDb); return { id: uid, ...data };
+    }
+    const { doc, setDoc } = fb.fs;
+    await setDoc(doc(fb.db, 'users', uid), data, { merge });
+    return { id: uid, ...data };
+  },
+
+  /**
+   * 파일 업로드
+   *  운영 — Cloud Storage 에 저장하고 { path, url } 반환
+   *  데모 — dataURL 로 브라우저에만 보관 (1MB 이하)
+   */
+  async uploadFile(path, file){
+    if(DEMO){
+      const url = await new Promise(res => {
+        if(!file || file.size > 1024 * 1024) return res('');
+        const r = new FileReader();
+        r.onload = () => res(r.result); r.onerror = () => res('');
+        r.readAsDataURL(file);
+      });
+      return { path:'', url };
+    }
+    const { ref, uploadBytes, getDownloadURL } = fb.st;
+    const r = ref(fb.storage, path);
+    await uploadBytes(r, file, { contentType: file.type || 'application/octet-stream' });
+    return { path, url: await getDownloadURL(r) };
   },
 
   /* ── 조회 ──────────────────────────────────────────── */

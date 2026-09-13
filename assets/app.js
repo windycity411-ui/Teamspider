@@ -2,7 +2,7 @@
    공통 UI · 세션 가드 · 공지 팝업 · 메일 발송
    ══════════════════════════════════════════════════════════ */
 import { store, nowISO, todayISO } from './store.js';
-import { ROLES, DEMO } from './config.js';
+import { ROLES, DEMO, FIREBASE, MAIL_REGION } from './config.js';
 
 /* ── DOM 헬퍼 ──────────────────────────────────────────── */
 export const $  = (s, r = document) => r.querySelector(s);
@@ -101,17 +101,31 @@ export function topbar(user, right = ''){
     document.body.prepend(d);
   }
   const lo = $('#btnLogout');
-  if(lo) lo.onclick = () => { store.clearSession(); location.href = 'index.html'; };
+  if(lo) lo.onclick = async () => {
+    if(DEMO){ store.clearSession(); }
+    else { const { logout } = await import('./auth.js'); await logout(); }
+    location.href = 'index.html';
+  };
   return bar;
 }
 
 /* ── 접근 제어 ─────────────────────────────────────────── */
 export async function guard(minRank){
   await store.ready();
-  const s = store.session();
-  if(!s){ location.replace('index.html'); return null; }
-  const u = await store.get('users', s.id);
+
+  /* 운영 모드 — 로그인 세션이 아니라 Firebase 인증 상태가 기준 */
+  let id = null;
+  if(DEMO){
+    id = store.session()?.id || null;
+  }else{
+    const { currentUid } = await import('./auth.js');
+    id = await currentUid();
+  }
+  if(!id){ store.clearSession(); location.replace('index.html'); return null; }
+
+  const u = await store.get('users', id);
   if(!u){ store.clearSession(); location.replace('index.html'); return null; }
+  store.setSession({ id:u.id, name:u.name, role:u.role });
   if(ROLES[u.role].rank < minRank){
     alert('접근 권한이 없습니다.');
     location.replace(ROLES[u.role].home);
@@ -207,14 +221,17 @@ export async function sendMail({ subject, lines, files = [] }){
   }
 
   // 운영: Cloud Functions(sendDocumentMail) 호출
+  const region = MAIL_REGION || 'asia-northeast3';
+  const url = `https://${region}-${FIREBASE.projectId}.cloudfunctions.net/sendDocumentMail`;
   try{
-    const res = await fetch(`https://us-central1-${(await store.meta('site'))?.projectId || ''}.cloudfunctions.net/sendDocumentMail`, {
+    const res = await fetch(url, {
       method:'POST', headers:{ 'Content-Type':'application/json' },
       body: JSON.stringify({ to, subject, body, files, mode: mail.mode })
     });
-    return { ok: res.ok, to, subject };
+    if(!res.ok) return { ok:false, reason:`발송 서버 응답 ${res.status}`, to, subject };
+    return { ok:true, to, subject };
   }catch(e){
-    return { ok:false, reason:String(e), to, subject };
+    return { ok:false, reason:'발송 서버에 연결하지 못했습니다. Cloud Functions 배포 여부를 확인하십시오.', to, subject };
   }
 }
 

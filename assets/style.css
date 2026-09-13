@@ -235,6 +235,7 @@ tfoot tr td{background:var(--surface-2); font-weight:700; border-top:2px solid v
 .b-info{background:var(--good-soft); color:var(--good); border:1px solid var(--good)}
 .b-ok{background:var(--good-soft); color:var(--good); border:1px solid var(--good)}
 .b-alert{background:var(--accent-soft); color:var(--accent-d); border:1px solid var(--accent)}
+.b-caution{background:var(--warn-soft); color:var(--warn); border:1px solid var(--warn)}
 
 /* ── 데모 표시줄 ────────────────────── */
 .demobar{background:var(--warn-soft); color:var(--warn); border-bottom:1px solid var(--warn); font-family:var(--mono); font-size:11px; letter-spacing:.04em; text-align:center; padding:6px 12px}
