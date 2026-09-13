@@ -3,71 +3,102 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>노가다의신 · 현장 근로자 관리</title>
+<title>팀 스파이더 · 현장 근로자 관리</title>
 <meta name="description" content="건설 현장 출역·서류·공수 관리 시스템">
-<meta name="theme-color" content="#C87C00">
+<meta name="theme-color" content="#C0453A">
 <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="assets/style.css">
 <style>
-  .hero{padding-block:38px 26px; border-bottom:1px solid var(--line)}
-  .hero h1{font-size:clamp(28px,6vw,40px); font-weight:700; line-height:1.15; margin-bottom:10px}
-  .hero p{color:var(--ink-2); max-width:48ch; margin:0}
-  .hero .mk{
-    display:inline-grid; place-items:center; width:44px; height:44px; margin-bottom:16px;
-    background:var(--accent); color:var(--accent-ink); border-radius:3px;
-    font-family:var(--mono); font-size:22px; font-weight:600;
+  .hero{background:var(--panel); color:var(--panel-ink); position:relative; overflow:hidden}
+  .hero-in{
+    max-width:1180px; margin:0 auto; padding-inline:20px; padding-block:44px 48px;
+    display:grid; grid-template-columns:1.15fr minmax(320px,400px); gap:48px; align-items:center;
+    position:relative; z-index:1;
   }
-  .cols{display:grid; grid-template-columns:1.1fr 1fr; gap:22px; padding-block:26px 60px; align-items:start}
-  @media (max-width:820px){ .cols{grid-template-columns:1fr} }
-  .quick{display:grid; grid-template-columns:repeat(2,1fr); gap:8px; margin-top:10px}
+  .web{position:absolute; right:-160px; bottom:-190px; width:580px; height:580px; color:#FFF; opacity:.09; pointer-events:none}
+  .hero .eyebrow{color:var(--accent); margin:0 0 18px}
+  .hero h1{font-size:clamp(30px,4.4vw,56px); line-height:1.18; margin:0 0 18px}
+  .hero .lede{color:var(--panel-ink-2); font-size:16px; line-height:1.72; margin:0; max-width:46ch}
+  .pts{list-style:none; margin:26px 0 0; padding:0; border-top:1px solid var(--panel-line)}
+  .pts li{display:flex; align-items:center; gap:15px; padding:14px 0; border-bottom:1px solid var(--panel-line); flex-wrap:wrap}
+  .pts .dot{width:7px; height:7px; flex:none; border-radius:50%}
+  .pts b{font-size:15px; font-weight:600; min-width:132px}
+  .pts span.d{font-size:14px; color:var(--panel-ink-2)}
+
+  .loginbox{background:var(--surface); border:1px solid var(--line-strong); border-top:3px solid var(--accent); padding:26px}
+  .switcher{display:flex; gap:3px; background:var(--surface-2); padding:3px; margin-bottom:18px}
+  .switcher button{flex:1; border:0; background:none; padding:9px; cursor:pointer; font-family:var(--sans); font-size:14px; font-weight:600; color:var(--ink-3)}
+  .switcher button[aria-selected="true"]{background:var(--surface); color:var(--ink); font-weight:700}
+
+  .quick{display:grid; grid-template-columns:repeat(2,1fr); gap:8px; margin-top:9px}
   .quick button{
-    text-align:left; padding:11px 13px; border:1px solid var(--line-strong); border-radius:var(--r);
-    background:var(--surface); cursor:pointer; font-family:var(--sans); color:var(--ink);
+    text-align:left; padding:11px 13px; border:1px solid var(--line); background:var(--surface);
+    cursor:pointer; font-family:var(--sans); color:var(--ink); display:flex; flex-direction:column; gap:2px;
   }
   .quick button:hover{border-color:var(--accent); background:var(--accent-soft)}
-  .quick b{display:block; font-size:14px; font-weight:700}
-  .quick span{font-size:11.5px; color:var(--ink-3); font-family:var(--mono)}
-  .job{border-bottom:1px solid var(--line); padding:15px 16px}
-  .job:last-child{border-bottom:0}
-  .job h4{font-size:15px; font-weight:700; margin-bottom:5px}
-  .job .meta{display:flex; gap:7px; flex-wrap:wrap; margin-bottom:8px}
-  .job .pay{font-family:var(--mono); font-variant-numeric:tabular-nums; font-weight:600; color:var(--accent)}
-  .switcher{display:flex; gap:2px; background:var(--surface-2); padding:3px; border-radius:var(--r); margin-bottom:16px}
-  .switcher button{flex:1; border:0; background:none; padding:8px; border-radius:2px; cursor:pointer; font-family:var(--sans); font-size:13.5px; font-weight:600; color:var(--ink-3)}
-  .switcher button[aria-selected="true"]{background:var(--surface); color:var(--ink); box-shadow:0 1px 2px rgba(0,0,0,.08)}
+  .quick b{font-size:14px; font-weight:700}
+  .quick span{font-size:11px; color:var(--ink-3); font-family:var(--mono)}
+
+  .jobs{padding-block:32px 64px}
+  .jobs-h{display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:16px}
+  .jobs-h h2{font-size:24px}
+  #jobList{display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:14px}
+  .job{background:var(--surface); border:1px solid var(--line); padding:17px 19px; display:flex; flex-direction:column; gap:11px}
+  .job h4{font-size:15.5px; font-weight:700; font-family:var(--sans); line-height:1.45}
+  .job .meta{display:flex; gap:6px; flex-wrap:wrap}
+  .job .foot{display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin-top:auto; flex-wrap:wrap}
+  .job .pay{font-family:var(--mono); font-variant-numeric:tabular-nums; font-size:18px; font-weight:600; color:var(--accent)}
+  .job .pay em{font-style:normal; font-size:12px; color:var(--ink-3); font-weight:400}
+
+  @media (max-width:860px){
+    .hero-in{grid-template-columns:1fr; gap:30px; padding-block:34px 36px}
+    .web{right:-200px; bottom:-240px; opacity:.07}
+    .pts b{min-width:0}
+  }
 </style>
 </head>
 <body>
 
-<main class="wrap">
+<main>
 
   <section class="hero">
-    <span class="mk">工</span>
-    <h1>노가다의신</h1>
-    <p>현장 출역·서류 제출·공수 정산을 하나로 묶은 근로자 관리 시스템. 설치 없이 휴대폰 브라우저에서 바로 사용합니다.</p>
-  </section>
+    <svg class="web" viewBox="0 0 400 400" fill="none" aria-hidden="true">
+      <g stroke="currentColor" stroke-width="1.4">
+        <path d="M200 200 L200 10 M200 200 L334 66 M200 200 L390 200 M200 200 L334 334 M200 200 L200 390 M200 200 L66 334 M200 200 L10 200 M200 200 L66 66"></path>
+        <path d="M200 44 L310 90 L356 200 L310 310 L200 356 L90 310 L44 200 L90 90 Z"></path>
+        <path d="M200 92 L276 124 L308 200 L276 276 L200 308 L124 276 L92 200 L124 124 Z"></path>
+        <path d="M200 138 L244 156 L262 200 L244 244 L200 262 L156 244 L138 200 L156 156 Z"></path>
+      </g>
+    </svg>
 
-  <div class="cols">
+    <div class="hero-in">
+      <div>
+        <p class="eyebrow">건설 현장 근로자 관리 시스템</p>
+        <h1>현장에 흩어진 기록을<br>한 줄로 엮습니다</h1>
+        <p class="lede">출역부·서류·일당 계산이 종이와 단톡방에 흩어져 있던 일을 하나로 모읍니다. 앱 설치 없이 현장에서 휴대폰 브라우저로 바로 씁니다.</p>
+        <ul class="pts">
+          <li><span class="dot" style="background:#C0453A"></span><b>GPS 출퇴근</b><span class="d">현장 반경 안에서만 버튼이 열립니다</span></li>
+          <li><span class="dot" style="background:#00A3B0"></span><b>서류 자동 전달</b><span class="d">제출 즉시 본사 담당 부서 메일로 보냅니다</span></li>
+          <li><span class="dot" style="background:#D8A23C"></span><b>공수 자동 산출</b><span class="d">연장·야간·공제까지 반영한 실지급액</span></li>
+        </ul>
+      </div>
 
-    <!-- ── 좌: 로그인 / 가입 ─────────────────────────── -->
-    <div class="stack">
-      <div class="card">
+      <div class="loginbox">
         <div class="switcher" role="tablist">
           <button id="tabLogin" role="tab" aria-selected="true">로그인</button>
           <button id="tabJoin"  role="tab" aria-selected="false">근로자 가입</button>
         </div>
 
-        <!-- 로그인 -->
         <div id="paneLogin">
           <div class="field">
             <label class="f" for="loginPhone">휴대폰 번호</label>
             <input type="tel" id="loginPhone" placeholder="010-0000-0000" autocomplete="tel">
             <div class="hint">등록된 번호로 로그인합니다. 운영 전환 시 SMS 인증이 추가됩니다.</div>
           </div>
-          <button class="btn btn-p btn-block" id="btnLogin">로그인</button>
+          <button class="btn btn-p btn-block" id="btnLogin" style="height:48px;font-size:16px">로그인</button>
 
           <div id="demoQuick" hidden>
-            <p class="eyebrow" style="margin:18px 0 7px">데모 계정으로 둘러보기</p>
+            <p class="eyebrow" style="margin:20px 0 0">데모 계정으로 둘러보기</p>
             <div class="quick">
               <button data-role="dev"><b>개발자</b><span>전체 권한</span></button>
               <button data-role="lead"><b>직영팀장</b><span>1팀 관리</span></button>
@@ -77,7 +108,6 @@
           </div>
         </div>
 
-        <!-- 가입 -->
         <div id="paneJoin" hidden>
           <div class="field">
             <label class="f" for="jName">이름</label>
@@ -101,22 +131,23 @@
             <label><input type="checkbox" id="jAgree"> <span class="small">출퇴근 기록을 위한 <b>위치정보 수집</b> 및 개인정보 처리에 동의합니다.</span></label>
             <div class="hint">위치정보는 출퇴근 버튼을 누르는 순간에만 수집하며, 그 외 시간에는 수집하지 않습니다.</div>
           </div>
-          <button class="btn btn-p btn-block" id="btnJoin">가입 신청</button>
-          <div class="hint" style="text-align:center; margin-top:9px">관리자 승인 후 이용 가능합니다.</div>
+          <button class="btn btn-p btn-block" id="btnJoin" style="height:48px;font-size:16px">가입 신청</button>
+          <div class="hint" style="text-align:center">관리자 승인 후 이용 가능합니다.</div>
         </div>
       </div>
     </div>
+  </section>
 
-    <!-- ── 우: 채용공고 ──────────────────────────────── -->
-    <div class="panel">
-      <div class="panel-h">
-        <h3>채용 공고</h3>
-        <span class="eyebrow">로그인 없이 지원 가능</span>
+  <section class="wrap jobs">
+    <div class="jobs-h">
+      <div class="row" style="gap:12px">
+        <h2>채용 공고</h2>
+        <span class="tag t-info">로그인 없이 지원 가능</span>
       </div>
-      <div id="jobList"></div>
     </div>
+    <div id="jobList"></div>
+  </section>
 
-  </div>
 </main>
 
 <script type="module">
@@ -224,15 +255,15 @@ if(!jobs.length){
 }else{
   wrap.innerHTML = jobs.map(j => `
     <div class="job">
-      <h4>${esc(j.title)}</h4>
       <div class="meta">
         <span class="tag t-info">${esc(j.trade)}</span>
         <span class="tag t-off">${esc(j.period)}</span>
         <span class="tag t-off">${esc(j.count)}명</span>
       </div>
-      <div class="small muted" style="margin-bottom:7px">${esc(j.location)}</div>
-      <div class="spread">
-        <span class="pay">${won(j.rate)}원 <span class="small muted">/ 1공수</span></span>
+      <h4>${esc(j.title)}</h4>
+      <div class="small muted">${esc(j.location)}</div>
+      <div class="foot">
+        <span class="pay">${won(j.rate)}<em> 원 / 1공수</em></span>
         <button class="btn btn-sm btn-p" data-apply="${j.id}">지원하기</button>
       </div>
     </div>`).join('');
