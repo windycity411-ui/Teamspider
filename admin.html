@@ -809,11 +809,41 @@ if(me){
   /* ══════════════ 8. 근로자 ══════════════ */
   async function renderUsers(){
     const us = (await allUsers()).filter(u => scope(u)).sort((a,b) => (a.approved?1:0)-(b.approved?1:0));
+    const pending = us.filter(u => !u.approved);
+
     $('#v-users').innerHTML = `
-      <div class="toolbar"><h2 style="font-size:17px;margin:0">근로자 관리</h2>
-        <span class="mini">${isDev?'전체':me.part} · ${us.length}명</span>
-        <span style="flex:1"></span>
-        <button class="btn btn-sm btn-p" id="uNew">근로자 추가</button></div>
+      <div class="spread sec">
+        <div>
+          <h2 style="font-size:21px">근로자 관리</h2>
+          <p class="mini" style="margin:4px 0 0">${isDev?'전체':me.part} · ${us.length}명${pending.length?` · 승인 대기 ${pending.length}명`:''}</p>
+        </div>
+        <div class="row" style="gap:8px">
+          <button class="btn btn-sm" id="uReload">새로고침</button>
+          <button class="btn btn-sm btn-p" id="uNew">근로자 추가</button>
+        </div>
+      </div>
+
+      ${pending.length ? `
+      <div class="panel sec" style="border-top:3px solid var(--accent)">
+        <div class="panel-h">
+          <h3>가입 승인 대기 ${pending.length}명</h3>
+          <span class="mini">승인해야 출퇴근·서류제출이 열립니다</span>
+        </div>
+        <ul class="list">
+          ${pending.map(u => `
+            <li class="spread" style="gap:10px">
+              <div style="min-width:0">
+                <div class="li-t">${esc(u.name)} ${tag('t-off', esc(u.trade || '직종 미지정'))}</div>
+                <div class="li-m">${esc(u.loginId || '-')} · ${esc(u.phone || '-')} · ${esc(u.part || '-')}</div>
+              </div>
+              <div class="row" style="gap:6px">
+                <button class="btn btn-sm btn-p" data-ua="${u.id}">승인</button>
+                <button class="btn btn-sm" data-ue="${u.id}">정보 수정</button>
+              </div>
+            </li>`).join('')}
+        </ul>
+      </div>` : ''}
+      <p class="mini" style="margin:0 0 6px">전체 명단 — 좁은 화면에서는 표를 옆으로 밀어서 보십시오.</p>
       <div class="tablewrap"><table>
         <thead><tr><th>이름</th><th>아이디</th><th>연락처</th><th>역할</th><th>직종</th><th class="n">단가</th><th>소속</th><th>상태</th><th></th></tr></thead>
         <tbody>${us.map(u => `<tr class="${u.approved?'':'needs'}">
@@ -833,7 +863,11 @@ if(me){
       </table></div>
       <div class="banner b-info" style="margin-top:12px">승인 전 계정은 출퇴근·서류제출 기능이 잠겨 있습니다. 역할·단가·승인 상태 변경은 전부 이력에 남습니다.</div>`;
 
+    const rl = $('#uReload');
+    if(rl) rl.onclick = () => renderUsers();
+
     $$('[data-ua]').forEach(b => b.onclick = async () => {
+      b.disabled = true;
       await store.update('users', b.dataset.ua, { approved:true });
       await store.log('users', b.dataset.ua, 'approve', '가입 승인', me);
       toast('승인되었습니다.'); renderUsers();
