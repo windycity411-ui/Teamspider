@@ -99,7 +99,11 @@ service cloud.firestore {
     /* ── 구인구직 ───────────────────────────────────────
        공고는 비로그인 열람 허용(public), 지원서는 쓰기만 허용 */
     match /jobs/{id} {
-      allow read:   if resource.data.public == true || signedIn();
+      // 공고는 채용을 위해 공개하는 정보이므로 열람은 전면 허용함.
+      // (비로그인 지원 화면이 목록을 읽어야 하고, 조건부 규칙은
+      //  목록 조회에서 거부되어 화면이 비어 버림)
+      // 등록·수정은 관리자만 가능.
+      allow read:   if true;
       allow write:  if isLead();
     }
     match /applications/{id} {

@@ -332,7 +332,8 @@ $('#btnJoin').onclick = async () => {
 };
 
 /* ── 채용공고 ──────────────────────────── */
-const jobs = (await store.list('jobs')).filter(j => j.open && j.public);
+/* 비로그인 상태에서도 읽히도록 공개 공고만 서버에서 걸러 옴 */
+const jobs = (await store.list('jobs', j => j.open, { where:['public','==',true] }));
 const wrap = $('#jobList');
 
 if(!jobs.length){
