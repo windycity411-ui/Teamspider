@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>출퇴근 · 노가다의신</title>
+<meta name="theme-color" content="#C87C00">
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="assets/style.css">
+<style>
+  .today{background:var(--surface); border:1px solid var(--line); border-radius:var(--r); padding:16px; text-align:center}
+  .today .d{font-family:var(--mono); font-size:13px; color:var(--ink-3); letter-spacing:.06em}
+  .today .t{font-family:var(--mono); font-size:42px; font-weight:600; letter-spacing:-.03em; line-height:1.1}
+  .punchrow{display:grid; gap:10px}
+  .kv{display:flex; justify-content:space-between; padding:9px 0; border-bottom:1px solid var(--line); font-size:14px}
+  .kv:last-child{border-bottom:0}
+  .kv b{font-family:var(--mono); font-variant-numeric:tabular-nums}
+  .cal{display:grid; grid-template-columns:repeat(7,1fr); gap:3px}
+  .cal .hd{text-align:center; font-size:11px; color:var(--ink-3); font-family:var(--mono); padding:3px 0}
+  .cal .cell{aspect-ratio:1; border:1px solid var(--line); border-radius:2px; padding:3px 4px; font-size:11px; background:var(--surface); display:flex; flex-direction:column; justify-content:space-between}
+  .cal .cell.off{background:transparent; border-color:transparent}
+  .cal .cell .dd{color:var(--ink-3); font-family:var(--mono)}
+  .cal .cell .gg{font-family:var(--mono); font-weight:600; font-size:11.5px; color:var(--accent); text-align:right}
+  .cal .cell.today{border-color:var(--accent); border-width:2px}
+  .doc{display:flex; justify-content:space-between; align-items:center; gap:10px; padding:12px 0; border-bottom:1px solid var(--line)}
+  .doc:last-child{border-bottom:0}
+  .doc .nm{font-weight:600; font-size:14px}
+  .doc .no{font-size:11.5px; color:var(--ink-3)}
+</style>
+</head>
+<body class="has-btabs">
+
+<main class="wrap-narrow" style="padding-block:16px">
+
+  <!-- 홈 -->
+  <section id="v-home" class="stack">
+    <div id="alertBox"></div>
+    <div class="today">
+      <div class="d" id="todayDate"></div>
+      <div class="t" id="clock">--:--</div>
+    </div>
+    <div class="punchrow">
+      <button class="punch" id="btnIn">출근<small id="inSub">버튼을 누르면 위치를 확인합니다</small></button>
+      <button class="punch out" id="btnOut">퇴근<small id="outSub">작업 종료 후 누르십시오</small></button>
+    </div>
+    <div class="card">
+      <h3>오늘 기록</h3>
+      <div id="todayRec"></div>
+    </div>
+  </section>
+
+  <!-- 내 공수 -->
+  <section id="v-my" class="stack" hidden>
+    <div class="grid g3">
+      <div class="stat"><span class="k">당월 출역</span><span class="v" id="mDays">0</span><span class="u">일</span></div>
+      <div class="stat"><span class="k">당월 공수</span><span class="v" id="mGongsu">0</span><span class="u">공수</span></div>
+      <div class="stat hot"><span class="k">예상 실지급</span><span class="v" id="mNet">0</span><span class="u">원</span></div>
+    </div>
+    <div id="insNotice"></div>
+    <div class="panel">
+      <div class="panel-h"><h3 id="calTitle">출역 달력</h3></div>
+      <div class="panel-b">
+        <div class="cal" id="cal"></div>
+        <p class="hint" style="margin-top:10px">날짜를 누르면 그날의 계산 명세를 볼 수 있습니다.</p>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-h"><h3>일자별 내역</h3></div>
+      <div class="tablewrap"><table id="myTable"></table></div>
+    </div>
+  </section>
+
+  <!-- 서류 -->
+  <section id="v-docs" class="stack" hidden>
+    <div id="docAlert"></div>
+    <div class="card">
+      <h3>제출 서류</h3>
+      <div id="docList"></div>
+    </div>
+  </section>
+
+  <!-- 게시판 -->
+  <section id="v-board" class="stack" hidden>
+    <div class="panel">
+      <div class="panel-h">
+        <h3>게시판</h3>
+        <button class="btn btn-sm btn-p" id="btnWrite">글쓰기</button>
+      </div>
+      <div class="panel-b" style="padding-bottom:0">
+        <div class="switcher" id="boardTabs" role="tablist"></div>
+      </div>
+      <ul class="list" id="postList"></ul>
+    </div>
+  </section>
+
+  <!-- 공고 -->
+  <section id="v-jobs" class="stack" hidden>
+    <div class="panel">
+      <div class="panel-h"><h3>채용 공고</h3></div>
+      <ul class="list" id="jobList"></ul>
+    </div>
+  </section>
+
+</main>
+
+<nav class="btabs" id="btabs" role="tablist">
+  <button data-v="home"  aria-selected="true"><span class="ic">⏱</span>출퇴근</button>
+  <button data-v="my"    aria-selected="false"><span class="ic">₩</span>내 공수</button>
+  <button data-v="docs"  aria-selected="false"><span class="ic">📄</span>서류</button>
+  <button data-v="board" aria-selected="false"><span class="ic">💬</span>게시판</button>
+  <button data-v="jobs"  aria-selected="false"><span class="ic">🏗</span>공고</button>
+</nav>
+
+<script type="module">
+import { store, todayISO, nowISO, hhmm, dow, ymOf } from './assets/store.js';
+import { DOC_TYPES, BOARDS, SETTINGS_DEFAULT } from './assets/config.js';
+import { $, $$, esc, toast, modal, confirmBox, topbar, guard, showNoticePopup,
+         sendMail, readFileAsURL, getPosition } from './assets/app.js';
+import { calcDay, splitHours, distanceM, won, gs } from './assets/gongsu.js';
+
+const me = await guard(2);
+if(me){
+  topbar(me);
+  const S    = await store.meta('settings') || SETTINGS_DEFAULT;
+  const site = await store.meta('site');
+
+  /* ── 탭 ─────────────────────────────── */
+  const views = ['home','my','docs','board','jobs'];
+  $$('#btabs button').forEach(b => b.onclick = () => show(b.dataset.v));
+  function show(v){
+    views.forEach(x => $('#v-'+x).hidden = x !== v);
+    $$('#btabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.v === v));
+    window.scrollTo(0,0);
+    if(v === 'my') renderMy();
+    if(v === 'docs') renderDocs();
+    if(v === 'board') renderBoard();
+    if(v === 'jobs') renderJobs();
+  }
+
+  /* ══════════════ 홈 · 출퇴근 ══════════════ */
+  const today = todayISO();
+  $('#todayDate').textContent = `${today.replace(/-/g,'. ')}. (${dow(today)})`;
+  const tick = () => {
+    const n = new Date(), p = x => String(x).padStart(2,'0');
+    $('#clock').textContent = `${p(n.getHours())}:${p(n.getMinutes())}`;
+  };
+  tick(); setInterval(tick, 20000);
+
+  let rec = null;
+  async function loadToday(){
+    const all = await store.list('attendance', a => a.userId === me.id && a.date === today);
+    rec = all[0] || null;
+    paintToday();
+  }
+
+  function paintToday(){
+    const inDone  = !!rec?.checkIn;
+    const outDone = !!rec?.checkOut;
+    $('#btnIn').disabled  = inDone;
+    $('#btnOut').disabled = !inDone || outDone;
+    $('#inSub').textContent  = inDone  ? `${hhmm(rec.checkIn)} 출근 완료`  : '버튼을 누르면 위치를 확인합니다';
+    $('#outSub').textContent = outDone ? `${hhmm(rec.checkOut)} 퇴근 완료` : '작업 종료 후 누르십시오';
+
+    if(!rec){
+      $('#todayRec').innerHTML = '<p class="muted small" style="margin:0">아직 출근 기록이 없습니다.</p>';
+    }else{
+      const h = rec.checkOut
+        ? splitHours(hhmm(rec.checkIn), hhmm(rec.checkOut), 60, S)
+        : { total:0, normal:rec.normalHours||0, overtime:rec.overtimeHours||0, night:rec.nightHours||0 };
+      const c = calcDay({ unitRate:me.unitRate, normalHours:h.normal, overtimeHours:h.overtime,
+                          nightHours:h.night, holiday:rec.holiday, monthDays:1, monthHours:8, s:S });
+      $('#todayRec').innerHTML = `
+        <div class="kv"><span>출근</span><b>${hhmm(rec.checkIn)}</b></div>
+        <div class="kv"><span>퇴근</span><b>${rec.checkOut ? hhmm(rec.checkOut) : '-'}</b></div>
+        <div class="kv"><span>인정 방식</span><b>${rec.method === 'gps' ? 'GPS' : '관리자 수기'}</b></div>
+        <div class="kv"><span>상태</span><b>${statusTag(rec.status)}</b></div>
+        ${rec.checkOut ? `<div class="kv"><span>금일 공수</span><b>${gs(c.gongsu.total)} 공수</b></div>` : ''}`;
+    }
+
+    const box = $('#alertBox');
+    if(rec?.status === 'pending'){
+      box.innerHTML = `<div class="banner b-warn">반경 밖 기록으로 <b>승인 대기</b> 상태입니다. 팀장 승인 후 공수가 인정됩니다.</div>`;
+    }else box.innerHTML = '';
+  }
+
+  const statusTag = s => ({
+    ok:'<span class="tag t-ok">정상</span>',
+    pending:'<span class="tag t-wait">승인대기</span>',
+    reject:'<span class="tag t-no">반려</span>'
+  }[s] || '<span class="tag t-off">-</span>');
+
+  async function punch(kind){
+    const btn = kind === 'in' ? $('#btnIn') : $('#btnOut');
+    btn.disabled = true;
+    const sub = kind === 'in' ? $('#inSub') : $('#outSub');
+    sub.textContent = '위치 확인 중…';
+
+    const pos = await getPosition();
+    let status = 'ok', memo = '', dist = null;
+
+    if(pos.ok){
+      dist = distanceM(pos.lat, pos.lng, site.lat, site.lng);
+      if(dist > (site.radius || 300)){
+        const reason = await promptReason(dist, site.radius);
+        if(reason === null){ sub.textContent = '취소됨'; paintToday(); return; }
+        status = 'pending'; memo = reason;
+      }
+    }else{
+      const reason = await promptReason(null, null, pos.reason);
+      if(reason === null){ sub.textContent = '취소됨'; paintToday(); return; }
+      status = 'pending'; memo = reason;
+    }
+
+    const geo = pos.ok ? { lat:pos.lat, lng:pos.lng, acc:pos.acc, dist } : null;
+
+    if(kind === 'in'){
+      rec = await store.add('attendance', {
+        date: today, userId: me.id, part: me.part,
+        checkIn: nowISO(), checkOut: null,
+        normalHours: 0, overtimeHours: 0, nightHours: 0, holiday: new Date().getDay() === 0,
+        method: 'gps', geoIn: geo, status, memo, confirmed: false
+      });
+      toast(status === 'ok' ? '출근 처리되었습니다.' : '승인 대기로 접수되었습니다.');
+    }else{
+      const h = splitHours(hhmm(rec.checkIn), hhmm(nowISO()), 60, S);
+      await store.update('attendance', rec.id, {
+        checkOut: nowISO(), geoOut: geo,
+        normalHours: h.normal, overtimeHours: h.overtime, nightHours: h.night,
+        status: status === 'pending' ? 'pending' : rec.status,
+        memo: memo || rec.memo
+      });
+      toast(`퇴근 처리되었습니다. (${h.normal + h.overtime}시간)`);
+    }
+    await loadToday();
+  }
+
+  function promptReason(dist, radius, err){
+    return modal({
+      title: err ? '위치 확인 실패' : '현장 반경 밖입니다',
+      body: err
+        ? `<div class="banner b-warn">${esc(err)}</div>
+           <p class="small muted" style="margin-top:12px">사유를 입력하면 승인 대기 상태로 기록됩니다.</p>
+           <div class="field"><input type="text" id="rsn" placeholder="예: 실내 작업으로 GPS 수신 불가"></div>`
+        : `<p>현재 위치가 현장에서 <b>${dist}m</b> 떨어져 있습니다. (허용 ${radius}m)</p>
+           <p class="small muted">사유를 입력하면 승인 대기 상태로 기록되며, 팀장 승인 후 공수가 인정됩니다.</p>
+           <div class="field"><input type="text" id="rsn" placeholder="예: 자재 상차로 외부 이동"></div>`,
+      actions:[
+        { label:'취소', value:null },
+        { label:'사유 제출', value:'ok', cls:'btn-p', before(box){
+            const v = box.querySelector('#rsn').value.trim();
+            if(!v){ toast('사유를 입력하십시오.'); return false; }
+            window.__rsn = v; return true;
+          }}
+      ]
+    }).then(r => r === null ? null : window.__rsn);
+  }
+
+  $('#btnIn').onclick  = () => punch('in');
+  $('#btnOut').onclick = () => punch('out');
+  await loadToday();
+
+  /* ══════════════ 내 공수 ══════════════ */
+  async function renderMy(){
+    const ym = ymOf(today);
+    const rows = (await store.list('attendance', a => a.userId === me.id && ymOf(a.date) === ym))
+      .sort((a,b) => a.date.localeCompare(b.date));
+
+    let days = 0, hours = 0, gTotal = 0, net = 0, gross = 0;
+    const detail = [];
+
+    rows.forEach(r => {
+      if(!r.checkIn || r.status === 'reject') return;
+      days++;
+      hours += (r.normalHours || 0) + (r.overtimeHours || 0);
+      const c = calcDay({
+        unitRate: me.unitRate, normalHours:r.normalHours, overtimeHours:r.overtimeHours,
+        nightHours:r.nightHours, holiday:r.holiday, monthDays:days, monthHours:hours, s:S
+      });
+      gTotal += c.gongsu.total; net += c.net; gross += c.gross;
+      detail.push({ r, c });
+    });
+
+    $('#mDays').textContent   = days;
+    $('#mGongsu').textContent = gs(gTotal);
+    $('#mNet').textContent    = won(net);
+    $('#calTitle').textContent = `${ym.replace('-','년 ')}월 출역 달력`;
+
+    const need = S.pensionMinDays || 8;
+    $('#insNotice').innerHTML = days >= need
+      ? `<div class="banner b-info">당월 출역 ${days}일 — 국민연금·건강보험 적용 대상입니다.</div>`
+      : (days === need - 1
+        ? `<div class="banner b-warn">당월 출역 ${days}일 — 1일 더 출역하면 국민연금·건강보험이 당월 전체에 소급 적용됩니다.</div>`
+        : '');
+
+    // 달력
+    const [Y,M] = ym.split('-').map(Number);
+    const first = new Date(Y, M-1, 1).getDay();
+    const last  = new Date(Y, M, 0).getDate();
+    const byDate = Object.fromEntries(detail.map(d => [d.r.date, d]));
+    let html = ['일','월','화','수','목','금','토'].map(d => `<div class="hd">${d}</div>`).join('');
+    for(let i=0;i<first;i++) html += '<div class="cell off"></div>';
+    for(let d=1; d<=last; d++){
+      const ds = `${Y}-${String(M).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      const hit = byDate[ds];
+      html += `<div class="cell${ds===today?' today':''}" ${hit?`data-day="${ds}"`:''} ${hit?'style="cursor:pointer"':''}>
+                 <span class="dd">${d}</span>
+                 <span class="gg">${hit ? gs(hit.c.gongsu.total) : ''}</span>
+               </div>`;
+    }
+    $('#cal').innerHTML = html;
+    $$('#cal [data-day]').forEach(c => c.onclick = () => showDetail(byDate[c.dataset.day]));
+
+    // 표
+    $('#myTable').innerHTML = `
+      <thead><tr><th>일자</th><th>출/퇴근</th><th class="n">공수</th><th class="n">실지급</th><th>상태</th></tr></thead>
+      <tbody>${detail.map(({r,c}) => `
+        <tr data-day="${r.date}" style="cursor:pointer">
+          <td class="nowrap">${r.date.slice(5).replace('-','.')} (${dow(r.date)})</td>
+          <td class="nowrap small">${hhmm(r.checkIn)}~${r.checkOut?hhmm(r.checkOut):'-'}</td>
+          <td class="n">${gs(c.gongsu.total)}</td>
+          <td class="n">${won(c.net)}</td>
+          <td>${statusTag(r.status)}</td>
+        </tr>`).join('') || '<tr><td colspan="5" class="muted small">기록 없음</td></tr>'}
+      </tbody>
+      ${detail.length ? `<tfoot><tr class="total"><td colspan="2">당월 합계</td>
+        <td class="n">${gs(gTotal)}</td><td class="n">${won(net)}</td><td></td></tr></tfoot>` : ''}`;
+    $$('#myTable [data-day]').forEach(tr => tr.onclick = () => showDetail(byDate[tr.dataset.day]));
+  }
+
+  function showDetail({ r, c }){
+    const row = (k,v,cls='') => `<div class="kv ${cls}"><span>${k}</span><b>${v}</b></div>`;
+    modal({
+      title:`${r.date.replace(/-/g,'. ')} (${dow(r.date)}) 계산 명세`,
+      body:`
+        ${row('직종 단가', won(c.unitRate) + '원')}
+        ${row('정상', gs(c.gongsu.normal) + ' 공수')}
+        ${c.gongsu.overtime ? row('연장', gs(c.gongsu.overtime) + ' 공수') : ''}
+        ${c.gongsu.night ? row('야간 가산', gs(c.gongsu.night) + ' 공수') : ''}
+        ${row('<b>기본노무비</b>', won(c.basePay) + '원')}
+        ${c.taxFree ? row('비과세 수당', won(c.taxFree) + '원') : ''}
+        ${row('<b>지급총액</b>', won(c.gross) + '원')}
+        <hr style="border:0;border-top:1px solid var(--line);margin:12px 0">
+        ${row('고용보험', '−' + won(c.deductions.employment))}
+        ${c.insuranceApplies
+          ? row('국민연금', '−' + won(c.deductions.pension)) + row('건강보험', '−' + won(c.deductions.health + c.deductions.ltCare))
+          : row('국민연금·건강보험', '<span class="tag t-off">미적용</span>')}
+        ${row('소득세', '−' + won(c.deductions.incomeTax))}
+        ${row('지방소득세', '−' + won(c.deductions.localTax))}
+        ${row('<b>공제계</b>', '−' + won(c.deductions.total) + '원')}
+        <div class="calcout" style="margin-top:14px">
+          <div class="final"><span><b>실지급액</b></span><b>${won(c.net)}원</b></div>
+        </div>
+        ${r.memo ? `<p class="small muted" style="margin-top:10px">비고: ${esc(r.memo)}</p>` : ''}`,
+      actions:[{ label:'닫기', value:true, cls:'btn-p' }]
+    });
+  }
+
+  /* ══════════════ 서류 ══════════════ */
+  async function renderDocs(){
+    const mine = await store.list('documents', d => d.userId === me.id);
+    const miss = DOC_TYPES.filter(t => t.required && !mine.some(m => m.type === t.key && m.status !== 'reject'));
+    $('#docAlert').innerHTML = miss.length
+      ? `<div class="banner b-warn"><span><b>미제출 ${miss.length}건</b> — ${miss.map(m=>m.label).join(', ')}</span></div>`
+      : `<div class="banner b-ok">필수 서류를 모두 제출하였습니다.</div>`;
+
+    $('#docList').innerHTML = DOC_TYPES.map(t => {
+      const d = mine.filter(m => m.type === t.key).sort((a,b)=>String(b.submittedAt).localeCompare(String(a.submittedAt)))[0];
+      const st = !d ? '<span class="tag t-off">미제출</span>'
+        : d.status === 'ok' ? '<span class="tag t-ok">승인</span>'
+        : d.status === 'reject' ? '<span class="tag t-no">반려</span>'
+        : '<span class="tag t-wait">검토중</span>';
+      return `<div class="doc">
+        <div>
+          <div class="nm">${esc(t.label)} ${t.required ? '<span class="tag t-info">필수</span>' : ''}</div>
+          <div class="no">${d && d.status==='reject' ? '반려 사유: ' + esc(d.rejectReason) : esc(t.note)}</div>
+        </div>
+        <div class="row" style="gap:7px">
+          ${st}
+          <button class="btn btn-sm" data-up="${t.key}">${d ? '재제출' : '제출'}</button>
+        </div>
+      </div>`;
+    }).join('');
+
+    $$('[data-up]').forEach(b => b.onclick = () => upload(b.dataset.up));
+  }
+
+  async function upload(typeKey){
+    const t = DOC_TYPES.find(x => x.key === typeKey);
+    const ok = await modal({
+      title:`${t.label} 제출`,
+      body:`<p class="small muted">${esc(t.note)}</p>
+            <div class="field"><input type="file" id="upf" accept="image/*,.pdf" capture="environment"></div>
+            <div class="banner b-info small">제출 즉시 회사 담당 부서로 자동 전달됩니다.</div>`,
+      actions:[
+        { label:'취소', value:false },
+        { label:'제출', value:true, cls:'btn-p', before(box){
+            const f = box.querySelector('#upf').files[0];
+            if(!f){ toast('파일을 선택하십시오.'); return false; }
+            window.__f = f; return true;
+          }}
+      ]
+    });
+    if(!ok) return;
+
+    const f = window.__f;
+    const url = await readFileAsURL(f);
+    const doc = await store.add('documents', {
+      userId: me.id, type: typeKey, status:'wait',
+      fileName: f.name, fileUrl: url, submittedAt: nowISO(), mailStatus:'queued'
+    });
+
+    const res = await sendMail({
+      subject:`[서류제출] ${me.name} — ${t.label}`,
+      lines:[
+        `성명 : ${me.name}`,
+        `직종 : ${me.trade}`,
+        `소속 : ${me.part}`,
+        `연락처 : ${me.phone}`,
+        `서류 : ${t.label}`,
+        `제출일시 : ${new Date().toLocaleString('ko-KR')}`
+      ],
+      files:[{ fileName:f.name, url:'' }]
+    });
+    await store.update('documents', doc.id, { mailStatus: res.ok ? 'sent' : 'fail', mailedAt: nowISO() });
+    toast(res.ok ? '제출되었습니다. 담당 부서로 전달되었습니다.' : '제출되었습니다. 메일 발송은 대기 중입니다.');
+    renderDocs();
+  }
+
+  /* ══════════════ 게시판 ══════════════ */
+  let board = 'notice';
+  async function renderBoard(){
+    $('#boardTabs').innerHTML = BOARDS.map(b =>
+      `<button data-b="${b.key}" aria-selected="${b.key===board}">${esc(b.label)}</button>`).join('');
+    $$('#boardTabs button').forEach(b => b.onclick = () => { board = b.dataset.b; renderBoard(); });
+
+    const posts = (await store.list('posts', p => p.board === board && !p.hidden))
+      .sort((a,b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    $('#postList').innerHTML = posts.map(p => `
+      <li data-post="${p.id}" style="cursor:pointer">
+        <div class="li-t">${esc(p.title)}</div>
+        <div class="li-m">${esc(p.anonymous ? '익명' : p.authorName)} · ${String(p.createdAt).slice(5,10).replace('-','.')}</div>
+      </li>`).join('') || '<li class="muted small">게시글이 없습니다.</li>';
+
+    $$('#postList [data-post]').forEach(li => li.onclick = () => {
+      const p = posts.find(x => x.id === li.dataset.post);
+      modal({ title:p.title,
+        body:`<p class="small muted mono">${esc(p.anonymous?'익명':p.authorName)} · ${String(p.createdAt).slice(0,10)}</p>
+              <p>${esc(p.body).replace(/\n/g,'<br>')}</p>`,
+        actions:[{ label:'닫기', value:true, cls:'btn-p' }] });
+    });
+
+    $('#btnWrite').hidden = board === 'notice';
+  }
+
+  $('#btnWrite').onclick = async () => {
+    const b = BOARDS.find(x => x.key === board);
+    const ok = await modal({
+      title:`${b.label} 글쓰기`,
+      body:`<div class="field"><label class="f">제목</label><input type="text" id="pt"></div>
+            <div class="field"><label class="f">내용</label><textarea id="pb"></textarea></div>
+            ${b.anonymous ? '<div class="field"><label><input type="checkbox" id="pa" checked> <span class="small">익명으로 작성</span></label></div>' : ''}`,
+      actions:[
+        { label:'취소', value:false },
+        { label:'등록', value:true, cls:'btn-p', before(box){
+            const t = box.querySelector('#pt').value.trim();
+            if(!t){ toast('제목을 입력하십시오.'); return false; }
+            window.__p = { title:t, body:box.querySelector('#pb').value.trim(),
+                           anonymous: box.querySelector('#pa')?.checked || false };
+            return true;
+          }}
+      ]
+    });
+    if(!ok) return;
+    await store.add('posts', { board, ...window.__p, authorId:me.id, authorName:me.name, hidden:false });
+    toast('등록되었습니다.');
+    renderBoard();
+  };
+
+  /* ══════════════ 공고 ══════════════ */
+  async function renderJobs(){
+    const jobs = (await store.list('jobs', j => j.open));
+    $('#jobList').innerHTML = jobs.map(j => `
+      <li>
+        <div class="li-t">${esc(j.title)}</div>
+        <div class="row" style="gap:6px;margin:5px 0">
+          <span class="tag t-info">${esc(j.trade)}</span>
+          <span class="tag t-off">${esc(j.count)}명</span>
+          <span class="tag t-off">${esc(j.period)}</span>
+        </div>
+        <div class="li-m">${won(j.rate)}원 / 1공수 · 문의 ${esc(j.contact)}</div>
+      </li>`).join('') || '<li class="muted small">등록된 공고가 없습니다.</li>';
+  }
+
+  /* 공지 팝업 */
+  showNoticePopup(me);
+}
+</script>
+</body>
+</html>

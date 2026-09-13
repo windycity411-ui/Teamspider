@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>관리자 · 노가다의신</title>
+<meta name="theme-color" content="#C87C00">
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="assets/style.css">
+<style>
+  .toolbar{display:flex; gap:9px; align-items:center; flex-wrap:wrap; margin-bottom:14px}
+  .toolbar input[type=date],.toolbar select{width:auto; min-width:120px}
+  .att-in{width:78px; padding:5px 7px; font-size:13px; font-family:var(--mono)}
+  .att-h{width:56px; padding:5px 7px; font-size:13px; font-family:var(--mono); text-align:right}
+  .sec{margin-bottom:22px}
+  .legend{display:flex; gap:12px; flex-wrap:wrap; font-size:12px; color:var(--ink-3)}
+  .mini{font-size:12px; color:var(--ink-3); font-family:var(--mono)}
+  .rate-row{display:grid; grid-template-columns:1fr 110px 34px; gap:7px; align-items:center; margin-bottom:6px}
+  .set-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px}
+</style>
+</head>
+<body>
+
+<div class="tabs wrap" id="tabs" role="tablist"></div>
+
+<main class="wrap" style="padding-block:18px 60px">
+  <section id="v-dash"></section>
+  <section id="v-att" hidden></section>
+  <section id="v-calc" hidden></section>
+  <section id="v-docs" hidden></section>
+  <section id="v-notice" hidden></section>
+  <section id="v-board" hidden></section>
+  <section id="v-jobs" hidden></section>
+  <section id="v-users" hidden></section>
+  <section id="v-set" hidden></section>
+</main>
+
+<script type="module">
+import { store, todayISO, nowISO, hhmm, dow, ymOf, uid } from './assets/store.js';
+import { DOC_TYPES, BOARDS, ROLES, SETTINGS_DEFAULT, TRADES_DEFAULT, DEMO } from './assets/config.js';
+import { $, $$, esc, toast, modal, confirmBox, topbar, guard, sendMail } from './assets/app.js';
+import { calcDay, calcTeam, splitHours, won, gs, floorTo } from './assets/gongsu.js';
+
+const me = await guard(3);
+if(me){
+  topbar(me);
+  const isDev = me.role === 'dev';
+  let S      = await store.meta('settings') || { ...SETTINGS_DEFAULT };
+  let site   = await store.meta('site');
+  let mail   = await store.meta('mail');
+  let tmeta  = await store.meta('trades');
+  let trades = Array.isArray(tmeta) ? tmeta : (tmeta?.list || [...TRADES_DEFAULT]);
+
+  /* 직영팀장은 자기 파트만 */
+  const scope = u => isDev || u.part === me.part;
+
+  /* ── 탭 구성 ────────────────────────── */
+  const TABS = [
+    ['dash','대시보드'], ['att','출역 관리'], ['calc','공수계산기'], ['docs','서류함'],
+    ['notice','공지'], ['board','게시판'], ['jobs','구인'], ['users','근로자'],
+    ...(isDev ? [['set','기준정보']] : [])
+  ];
+  $('#tabs').innerHTML = TABS.map(([k,l],i) =>
+    `<button data-t="${k}" role="tab" aria-selected="${i===0}">${l}</button>`).join('');
+  $$('#tabs button').forEach(b => b.onclick = () => go(b.dataset.t));
+
+  const R = { dash:renderDash, att:renderAtt, calc:renderCalc, docs:renderDocs,
+              notice:renderNotice, board:renderBoard, jobs:renderJobs,
+              users:renderUsers, set:renderSet };
+
+  function go(t){
+    TABS.forEach(([k]) => $('#v-'+k).hidden = k !== t);
+    $$('#tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.t === t));
+    window.scrollTo(0,0);
+    R[t]();
+  }
+
+  /* ── 공통 ───────────────────────────── */
+  const allUsers = () => store.list('users');
+  const workers  = async () => (await allUsers()).filter(u => u.role === 'worker' && scope(u));
+  const uname = (list,id) => list.find(u => u.id === id)?.name || '(삭제됨)';
+  const tag = (cls,txt) => `<span class="tag ${cls}">${txt}</span>`;
+  const stTag = s => ({ ok:tag('t-ok','정상'), pending:tag('t-wait','승인대기'), reject:tag('t-no','반려') }[s] || tag('t-off','-'));
+
+  async function monthStats(userId, upToDate){
+    const ym = ymOf(upToDate);
+    const rows = await store.list('attendance', a =>
+      a.userId === userId && ymOf(a.date) === ym && a.date <= upToDate && a.status !== 'reject' && a.checkIn);
+    return {
+      days: rows.length,
+      hours: rows.reduce((s,r) => s + (r.normalHours||0) + (r.overtimeHours||0), 0)
+    };
+  }
+
+  /* ══════════════ 1. 대시보드 ══════════════ */
+  async function renderDash(){
+    const today = todayISO();
+    const ws  = await workers();
+    const att = (await store.list('attendance', a => a.date === today))
+                  .filter(a => ws.some(w => w.id === a.userId));
+    const docs = (await store.list('documents')).filter(d => ws.some(w => w.id === d.userId));
+    const pend = att.filter(a => a.status === 'pending');
+    const apps = await store.list('applications', a => a.status === 'wait');
+    const unapproved = (await allUsers()).filter(u => u.role === 'worker' && !u.approved && scope(u));
+    const mailFail = (await store.list('documents')).filter(d => d.mailStatus === 'fail');
+
+    // 오늘 인건비
+    let cost = 0, gsum = 0;
+    for(const a of att){
+      if(!a.checkIn) continue;
+      const w = ws.find(x => x.id === a.userId); if(!w) continue;
+      const m = await monthStats(w.id, today);
+      const c = calcDay({ unitRate:w.unitRate, normalHours:a.normalHours, overtimeHours:a.overtimeHours,
+                          nightHours:a.nightHours, holiday:a.holiday, monthDays:m.days, monthHours:m.hours, s:S });
+      cost += c.gross; gsum += c.gongsu.total;
+    }
+
+    const missDocs = ws.filter(w => DOC_TYPES.filter(t=>t.required)
+      .some(t => !docs.some(d => d.userId === w.id && d.type === t.key && d.status === 'ok'))).length;
+
+    $('#v-dash').innerHTML = `
+      <div class="spread sec">
+        <div>
+          <h2 style="font-size:19px">${esc(site.name)} · ${today.replace(/-/g,'. ')} (${dow(today)})</h2>
+          <p class="mini">${isDev ? '전체 현장' : me.part + ' 범위'} · ${esc(ROLES[me.role].label)}</p>
+        </div>
+        <button class="btn btn-sm" id="goAtt">출역 관리로 이동</button>
+      </div>
+
+      <div class="grid g4 sec">
+        <div class="stat"><span class="k">금일 출역</span><span class="v">${att.filter(a=>a.checkIn).length}</span><span class="u">/ ${ws.length}명</span></div>
+        <div class="stat"><span class="k">금일 공수</span><span class="v">${gs(gsum)}</span><span class="u">공수</span></div>
+        <div class="stat hot"><span class="k">금일 인건비</span><span class="v">${won(cost)}</span><span class="u">원</span></div>
+        <div class="stat ${pend.length?'bad':''}"><span class="k">승인 대기</span><span class="v">${pend.length}</span><span class="u">건</span></div>
+      </div>
+
+      <div class="grid g2">
+        <div class="panel">
+          <div class="panel-h"><h3>처리 대기</h3></div>
+          <ul class="list">
+            ${row('출퇴근 승인 대기', pend.length, 'att')}
+            ${row('가입 승인 대기', unapproved.length, 'users')}
+            ${row('필수 서류 미비 인원', missDocs, 'docs')}
+            ${row('채용 지원서 미검토', apps.length, 'jobs')}
+            ${row('메일 발송 실패', mailFail.length, 'docs')}
+          </ul>
+        </div>
+        <div class="panel">
+          <div class="panel-h"><h3>금일 출역 현황</h3></div>
+          <div class="tablewrap" style="border:0;border-radius:0">
+            <table>
+              <thead><tr><th>이름</th><th>직종</th><th>출근</th><th>퇴근</th><th>상태</th></tr></thead>
+              <tbody>${ws.map(w => {
+                const a = att.find(x => x.userId === w.id);
+                return `<tr><td>${esc(w.name)}</td><td class="small">${esc(w.trade)}</td>
+                  <td class="n">${a?.checkIn?hhmm(a.checkIn):'-'}</td>
+                  <td class="n">${a?.checkOut?hhmm(a.checkOut):'-'}</td>
+                  <td>${a ? stTag(a.status) : tag('t-off','미출근')}</td></tr>`;
+              }).join('')}</tbody>
+            </table>
+          </div>
+        </div>
+      </div>`;
+
+    function row(label, n, to){
+      return `<li class="spread" style="cursor:pointer" data-go="${to}">
+        <span>${label}</span>
+        <span class="tag ${n?'t-wait':'t-ok'}">${n}건</span></li>`;
+    }
+    $$('[data-go]').forEach(x => x.onclick = () => go(x.dataset.go));
+    $('#goAtt').onclick = () => go('att');
+  }
+
+  /* ══════════════ 2. 출역 관리 ══════════════ */
+  let attDate = todayISO();
+  async function renderAtt(){
+    const ws = await workers();
+    const att = await store.list('attendance', a => a.date === attDate);
+
+    $('#v-att').innerHTML = `
+      <div class="toolbar">
+        <label class="f" style="margin:0">일자</label>
+        <input type="date" id="ad" value="${attDate}">
+        <button class="btn btn-sm" id="adPrev">◀ 전일</button>
+        <button class="btn btn-sm" id="adNext">익일 ▶</button>
+        <span style="flex:1"></span>
+        <button class="btn btn-sm" id="bulkIn">전원 정상출근 입력</button>
+        <button class="btn btn-sm btn-p" id="saveAtt">저장</button>
+      </div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr>
+            <th>이름</th><th>직종</th><th>출근</th><th>퇴근</th>
+            <th class="n">정상</th><th class="n">연장</th><th class="n">야간</th>
+            <th>휴일</th><th class="n">공수</th><th class="n">지급총액</th><th>상태</th><th></th>
+          </tr></thead>
+          <tbody id="attBody"></tbody>
+        </table>
+      </div>
+      <p class="mini" style="margin-top:9px">수정 시 수정자·시각·사유가 기록에 남습니다. 승인 대기 건은 사유 확인 후 승인/반려하십시오.</p>`;
+
+    $('#ad').onchange = e => { attDate = e.target.value; renderAtt(); };
+    $('#adPrev').onclick = () => { attDate = shift(attDate,-1); renderAtt(); };
+    $('#adNext').onclick = () => { attDate = shift(attDate, 1); renderAtt(); };
+
+    const body = $('#attBody');
+    body.innerHTML = ws.map(w => {
+      const a = att.find(x => x.userId === w.id) || {};
+      return `<tr data-u="${w.id}" data-a="${a.id||''}">
+        <td class="nowrap">${esc(w.name)}</td>
+        <td class="small nowrap">${esc(w.trade)}</td>
+        <td><input class="att-in" type="time" data-f="in"  value="${a.checkIn?hhmm(a.checkIn):''}"></td>
+        <td><input class="att-in" type="time" data-f="out" value="${a.checkOut?hhmm(a.checkOut):''}"></td>
+        <td><input class="att-h" type="number" step="0.5" data-f="nh" value="${a.normalHours??''}"></td>
+        <td><input class="att-h" type="number" step="0.5" data-f="oh" value="${a.overtimeHours??''}"></td>
+        <td><input class="att-h" type="number" step="0.5" data-f="gh" value="${a.nightHours??''}"></td>
+        <td style="text-align:center"><input type="checkbox" data-f="hol" ${a.holiday?'checked':''}></td>
+        <td class="n" data-f="gs">-</td>
+        <td class="n" data-f="pay">-</td>
+        <td>${a.id?stTag(a.status):tag('t-off','미등록')}</td>
+        <td class="nowrap">${a.status==='pending'
+          ? `<button class="btn btn-sm" data-ok="${a.id}">승인</button>
+             <button class="btn btn-sm" data-no="${a.id}">반려</button>`
+          : (a.memo?`<button class="btn btn-sm" data-memo="${esc(a.memo)}">비고</button>`:'')}</td>
+      </tr>`;
+    }).join('');
+
+    // 시간 입력 → 자동 분해 + 실시간 계산
+    body.addEventListener('input', e => {
+      const tr = e.target.closest('tr'); if(!tr) return;
+      const f = e.target.dataset.f;
+      if(f === 'in' || f === 'out'){
+        const i = tr.querySelector('[data-f=in]').value, o = tr.querySelector('[data-f=out]').value;
+        if(i && o){
+          const h = splitHours(i, o, 60, S);
+          tr.querySelector('[data-f=nh]').value = h.normal;
+          tr.querySelector('[data-f=oh]').value = h.overtime;
+          tr.querySelector('[data-f=gh]').value = h.night;
+        }
+      }
+      recalcRow(tr, ws);
+    });
+    body.addEventListener('change', e => recalcRow(e.target.closest('tr'), ws));
+    $$('#attBody tr').forEach(tr => recalcRow(tr, ws));
+
+    $$('[data-ok]').forEach(b => b.onclick = async () => {
+      await store.update('attendance', b.dataset.ok, { status:'ok' });
+      await store.log('attendance', b.dataset.ok, 'approve', '반경 밖 기록 승인', me);
+      toast('승인되었습니다.'); renderAtt();
+    });
+    $$('[data-no]').forEach(b => b.onclick = async () => {
+      const r = await modal({ title:'반려', body:'<div class="field"><label class="f">반려 사유</label><input type="text" id="rj"></div>',
+        actions:[{label:'취소',value:false},{label:'반려',value:true,cls:'btn-d',before(box){
+          window.__rj = box.querySelector('#rj').value.trim();
+          if(!window.__rj){ toast('사유를 입력하십시오.'); return false; } return true; }}]});
+      if(!r) return;
+      await store.update('attendance', b.dataset.no, { status:'reject', memo:window.__rj });
+      await store.log('attendance', b.dataset.no, 'reject', window.__rj, me);
+      toast('반려되었습니다.'); renderAtt();
+    });
+    $$('[data-memo]').forEach(b => b.onclick = () =>
+      modal({ title:'비고', body:`<p>${esc(b.dataset.memo)}</p>`, actions:[{label:'닫기',value:1,cls:'btn-p'}] }));
+
+    $('#bulkIn').onclick = () => {
+      $$('#attBody tr').forEach(tr => {
+        if(!tr.querySelector('[data-f=in]').value){
+          tr.querySelector('[data-f=in]').value  = site.workStart || '07:00';
+          tr.querySelector('[data-f=out]').value = site.workEnd   || '17:00';
+          const h = splitHours(site.workStart||'07:00', site.workEnd||'17:00', 60, S);
+          tr.querySelector('[data-f=nh]').value = h.normal;
+          tr.querySelector('[data-f=oh]').value = h.overtime;
+          tr.querySelector('[data-f=gh]').value = h.night;
+          recalcRow(tr, ws);
+        }
+      });
+      toast('입력되었습니다. 저장 버튼을 누르십시오.');
+    };
+
+    $('#saveAtt').onclick = async () => {
+      let n = 0;
+      for(const tr of $$('#attBody tr')){
+        const uidv = tr.dataset.u, aid = tr.dataset.a;
+        const i = tr.querySelector('[data-f=in]').value;
+        const o = tr.querySelector('[data-f=out]').value;
+        if(!i && !aid) continue;
+        const patch = {
+          checkIn:  i ? `${attDate}T${i}:00` : null,
+          checkOut: o ? `${attDate}T${o}:00` : null,
+          normalHours:   num(tr,'nh'), overtimeHours: num(tr,'oh'), nightHours: num(tr,'gh'),
+          holiday: tr.querySelector('[data-f=hol]').checked
+        };
+        if(aid){
+          await store.update('attendance', aid, patch);
+          await store.log('attendance', aid, 'edit', `${attDate} 수기 수정`, me);
+        }else{
+          const w = (await allUsers()).find(u => u.id === uidv);
+          const rec = await store.add('attendance', {
+            ...patch, date:attDate, userId:uidv, part:w.part,
+            method:'manual', status:'ok', memo:'관리자 수기 입력', confirmed:false
+          });
+          await store.log('attendance', rec.id, 'create', `${attDate} 수기 입력`, me);
+        }
+        n++;
+      }
+      toast(`${n}건 저장되었습니다.`);
+      renderAtt();
+    };
+
+    function num(tr,f){ const v = parseFloat(tr.querySelector(`[data-f=${f}]`).value); return isNaN(v)?0:v; }
+
+    async function recalcRow(tr, ws){
+      if(!tr) return;
+      const w = ws.find(x => x.id === tr.dataset.u); if(!w) return;
+      const m = await monthStats(w.id, attDate);
+      const c = calcDay({ unitRate:w.unitRate, normalHours:num(tr,'nh'), overtimeHours:num(tr,'oh'),
+                          nightHours:num(tr,'gh'), holiday:tr.querySelector('[data-f=hol]').checked,
+                          monthDays:Math.max(1,m.days), monthHours:m.hours, s:S });
+      tr.querySelector('[data-f=gs]').textContent  = c.gongsu.total ? gs(c.gongsu.total) : '-';
+      tr.querySelector('[data-f=pay]').textContent = c.gross ? won(c.gross) : '-';
+    }
+  }
+  const shift = (iso,n) => { const d = new Date(iso); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); };
+
+  /* ══════════════ 3. 공수계산기 ══════════════ */
+  async function renderCalc(){
+    const ws = await workers();
+    $('#v-calc').innerHTML = `
+      <div class="grid" style="grid-template-columns:minmax(280px,380px) 1fr; gap:18px; align-items:start">
+        <div class="panel">
+          <div class="panel-h"><h3>조건 입력</h3><span class="mini">모의계산</span></div>
+          <div class="panel-b">
+            <div class="field">
+              <label class="f" for="cw">근로자 (선택 시 단가 자동)</label>
+              <select id="cw"><option value="">직접 입력</option>
+                ${ws.map(w => `<option value="${w.id}">${esc(w.name)} · ${esc(w.trade)}</option>`).join('')}
+              </select>
+            </div>
+            <div class="field">
+              <label class="f" for="ct">직종</label>
+              <select id="ct">${trades.map(t => `<option value="${t.rate}">${esc(t.name)}</option>`).join('')}</select>
+            </div>
+            <div class="field">
+              <label class="f" for="cr">단가 (원 / 1공수)</label>
+              <input type="number" id="cr" value="${trades[0]?.rate||0}" step="1000">
+            </div>
+            <div class="grid g2">
+              <div class="field"><label class="f" for="cin">출근</label><input type="time" id="cin" value="07:00"></div>
+              <div class="field"><label class="f" for="cout">퇴근</label><input type="time" id="cout" value="17:00"></div>
+            </div>
+            <div class="grid g3">
+              <div class="field"><label class="f" for="cnh">정상(h)</label><input type="number" id="cnh" value="8" step="0.5"></div>
+              <div class="field"><label class="f" for="coh">연장(h)</label><input type="number" id="coh" value="0" step="0.5"></div>
+              <div class="field"><label class="f" for="cgh">야간(h)</label><input type="number" id="cgh" value="0" step="0.5"></div>
+            </div>
+            <div class="grid g2">
+              <div class="field"><label class="f" for="cmd">당월 출역일수</label><input type="number" id="cmd" value="3" min="0"></div>
+              <div class="field" style="display:flex;align-items:flex-end;gap:14px;padding-bottom:9px">
+                <label><input type="checkbox" id="chol"> <span class="small">휴일</span></label>
+                <label><input type="checkbox" id="calw" checked> <span class="small">수당</span></label>
+              </div>
+            </div>
+            <button class="btn btn-p btn-block" id="cgo">계산</button>
+          </div>
+        </div>
+
+        <div class="stack">
+          <div id="calcOut"></div>
+          <div class="panel">
+            <div class="panel-h">
+              <h3>금일 팀 일괄 계산</h3>
+              <input type="date" id="td" value="${todayISO()}" style="width:auto">
+            </div>
+            <div class="tablewrap" style="border:0;border-radius:0"><table id="teamT"></table></div>
+          </div>
+        </div>
+      </div>`;
+
+    const g = id => $('#'+id);
+    g('ct').onchange = () => g('cr').value = g('ct').value;
+    g('cw').onchange = () => {
+      const w = ws.find(x => x.id === g('cw').value);
+      if(w){ g('cr').value = w.unitRate; const o = [...g('ct').options].find(o => o.textContent.includes(w.trade)); if(o) g('ct').value = o.value; }
+    };
+    const syncHours = () => {
+      const h = splitHours(g('cin').value, g('cout').value, 60, S);
+      g('cnh').value = h.normal; g('coh').value = h.overtime; g('cgh').value = h.night;
+      run();
+    };
+    g('cin').onchange = syncHours; g('cout').onchange = syncHours;
+    ['cr','cnh','coh','cgh','cmd','chol','calw'].forEach(id => g(id).onchange = run);
+    g('cgo').onclick = run;
+
+    function run(){
+      const c = calcDay({
+        unitRate:+g('cr').value, normalHours:+g('cnh').value, overtimeHours:+g('coh').value,
+        nightHours:+g('cgh').value, holiday:g('chol').checked, allowance:g('calw').checked,
+        monthDays:+g('cmd').value, monthHours:(+g('cmd').value)*8, s:S
+      });
+      const r = (k,v,b) => `<tr><td>${k}</td><td class="n">${b?`<b>${v}</b>`:v}</td></tr>`;
+      $('#calcOut').innerHTML = `
+        <div class="calcout">
+          <table>
+            <tbody>
+              ${r('직종 단가', won(c.unitRate)+'원')}
+              ${r('정상 '+gs(c.gongsu.normal)+'공수', won(floorTo(c.unitRate*c.gongsu.normal)))}
+              ${c.gongsu.overtime ? r('연장 '+gs(c.gongsu.overtime)+'공수', won(floorTo(c.unitRate*c.gongsu.overtime))) : ''}
+              ${c.gongsu.night ? r('야간가산 '+gs(c.gongsu.night)+'공수', won(floorTo(c.unitRate*c.gongsu.night))) : ''}
+              <tr class="total"><td>기본노무비 · ${gs(c.gongsu.total)}공수</td><td class="n">${won(c.basePay)}</td></tr>
+              ${c.meal  ? r('식대(비과세)', won(c.meal)) : ''}
+              ${c.trans ? r('교통비(비과세)', won(c.trans)) : ''}
+              <tr class="total"><td>지급총액</td><td class="n">${won(c.gross)}</td></tr>
+              ${r('고용보험', '−'+won(c.deductions.employment))}
+              ${c.insuranceApplies
+                ? r('국민연금', '−'+won(c.deductions.pension)) +
+                  r('건강보험(장기요양 포함)', '−'+won(c.deductions.health + c.deductions.ltCare))
+                : r('국민연금·건강보험', tag('t-off','미적용'))}
+              ${r('소득세', '−'+won(c.deductions.incomeTax))}
+              ${r('지방소득세', '−'+won(c.deductions.localTax))}
+              <tr class="total"><td>공제계</td><td class="n">−${won(c.deductions.total)}</td></tr>
+            </tbody>
+          </table>
+          <div class="final"><span>실지급액</span><b>${won(c.net)}원</b></div>
+        </div>
+        ${c.warnings.map(w => `<div class="banner b-warn" style="margin-top:10px">${esc(w)}</div>`).join('')}
+        <p class="mini" style="margin-top:8px">사업주 부담 산재보험 ${won(c.accident)}원 별도. 소득세는 소액부징수 기준 미만 시 0원 처리됨.</p>`;
+    }
+    run();
+
+    /* 팀 일괄 */
+    $('#td').onchange = teamCalc;
+    async function teamCalc(){
+      const d = $('#td').value;
+      const att = await store.list('attendance', a => a.date === d);
+      const rows = [];
+      for(const w of ws){
+        const a = att.find(x => x.userId === w.id);
+        if(!a || !a.checkIn || a.status === 'reject') continue;
+        const m = await monthStats(w.id, d);
+        rows.push({ name:w.name, trade:w.trade, unitRate:w.unitRate,
+          normalHours:a.normalHours, overtimeHours:a.overtimeHours, nightHours:a.nightHours,
+          holiday:a.holiday, monthDays:m.days, monthHours:m.hours });
+      }
+      const { results, sum } = calcTeam(rows, S);
+      $('#teamT').innerHTML = `
+        <thead><tr><th>이름</th><th>직종</th><th class="n">공수</th><th class="n">지급총액</th><th class="n">공제</th><th class="n">실지급</th></tr></thead>
+        <tbody>${results.map(r => `<tr>
+          <td class="nowrap">${esc(r.name)}</td><td class="small nowrap">${esc(r.trade)}</td>
+          <td class="n">${gs(r.calc.gongsu.total)}</td>
+          <td class="n">${won(r.calc.gross)}</td>
+          <td class="n">−${won(r.calc.deductions.total)}</td>
+          <td class="n">${won(r.calc.net)}</td></tr>`).join('')
+          || '<tr><td colspan="6" class="muted small">해당 일자 출역 기록이 없습니다.</td></tr>'}</tbody>
+        ${results.length ? `<tfoot><tr class="total"><td colspan="2">합계 ${results.length}명</td>
+          <td class="n">${gs(sum.gongsu)}</td><td class="n">${won(sum.gross)}</td>
+          <td class="n">−${won(sum.deduction)}</td><td class="n">${won(sum.net)}</td></tr></tfoot>` : ''}`;
+    }
+    teamCalc();
+  }
+
+  /* ══════════════ 4. 서류함 ══════════════ */
+  async function renderDocs(){
+    const ws = await workers();
+    const docs = (await store.list('documents')).filter(d => ws.some(w => w.id === d.userId));
+    const req = DOC_TYPES.filter(t => t.required);
+
+    $('#v-docs').innerHTML = `
+      <div class="toolbar">
+        <h2 style="font-size:17px;margin:0">서류 제출 현황</h2>
+        <span style="flex:1"></span>
+        <span class="legend">${req.map(t=>esc(t.label)).join(' · ')} 필수</span>
+      </div>
+      <div class="tablewrap sec">
+        <table>
+          <thead><tr><th>이름</th><th>직종</th>${DOC_TYPES.map(t=>`<th>${esc(t.label)}</th>`).join('')}<th></th></tr></thead>
+          <tbody>${ws.map(w => `<tr>
+            <td class="nowrap">${esc(w.name)}</td><td class="small nowrap">${esc(w.trade)}</td>
+            ${DOC_TYPES.map(t => {
+              const d = docs.filter(x => x.userId===w.id && x.type===t.key)
+                            .sort((a,b)=>String(b.submittedAt).localeCompare(String(a.submittedAt)))[0];
+              if(!d) return `<td>${tag('t-off','—')}</td>`;
+              const c = d.status==='ok'?'t-ok':d.status==='reject'?'t-no':'t-wait';
+              const l = d.status==='ok'?'승인':d.status==='reject'?'반려':'검토';
+              return `<td><button class="btn btn-sm" data-doc="${d.id}" style="padding:1px 6px;border:0;background:none">${tag(c,l)}</button></td>`;
+            }).join('')}
+            <td class="mini nowrap">${req.filter(t=>!docs.some(x=>x.userId===w.id&&x.type===t.key&&x.status==='ok')).length}건 미비</td>
+          </tr>`).join('')}</tbody>
+        </table>
+      </div>
+
+      <div class="panel">
+        <div class="panel-h"><h3>메일 발송 이력</h3>
+          <span class="mini">수신처 ${mail.to ? esc(mail.to) : '<span class="tag t-no">미지정</span>'}</span></div>
+        <div class="tablewrap" style="border:0;border-radius:0">
+          <table>
+            <thead><tr><th>제출자</th><th>서류</th><th>제출일시</th><th>발송</th><th></th></tr></thead>
+            <tbody>${docs.slice().sort((a,b)=>String(b.submittedAt).localeCompare(String(a.submittedAt))).slice(0,20).map(d=>{
+              const st = d.mailStatus==='sent'?tag('t-ok','발송'):d.mailStatus==='fail'?tag('t-no','실패'):tag('t-wait','대기');
+              return `<tr><td>${esc(uname(ws,d.userId))}</td>
+                <td class="small">${esc(DOC_TYPES.find(t=>t.key===d.type)?.label||d.type)}</td>
+                <td class="mini">${String(d.submittedAt).slice(0,16).replace('T',' ')}</td>
+                <td>${st}</td>
+                <td>${d.mailStatus!=='sent'?`<button class="btn btn-sm" data-resend="${d.id}">재발송</button>`:''}</td></tr>`;
+            }).join('') || '<tr><td colspan="5" class="muted small">이력 없음</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>`;
+
+    $$('[data-doc]').forEach(b => b.onclick = async () => {
+      const d = docs.find(x => x.id === b.dataset.doc);
+      const t = DOC_TYPES.find(t => t.key === d.type);
+      const r = await modal({
+        title:`${uname(ws,d.userId)} · ${t.label}`,
+        body:`<p class="small mono muted">${esc(d.fileName)} · ${String(d.submittedAt).slice(0,16).replace('T',' ')}</p>
+              ${d.fileUrl && d.fileUrl.startsWith('data:image')
+                ? `<img src="${d.fileUrl}" alt="제출 서류" style="border:1px solid var(--line);border-radius:3px">`
+                : '<div class="banner b-info small">미리보기를 지원하지 않는 형식입니다.</div>'}
+              ${d.rejectReason?`<p class="small" style="color:var(--danger)">반려 사유: ${esc(d.rejectReason)}</p>`:''}`,
+        actions:[
+          { label:'닫기', value:null },
+          { label:'반려', value:'reject', cls:'btn-d' },
+          { label:'승인', value:'ok', cls:'btn-p' }
+        ]
+      });
+      if(r === 'ok'){ await store.update('documents', d.id, { status:'ok', rejectReason:'' }); toast('승인되었습니다.'); renderDocs(); }
+      if(r === 'reject'){
+        const rr = await modal({ title:'반려 사유', body:'<div class="field"><input type="text" id="rr" placeholder="예: 이수증 유효기간 경과"></div>',
+          actions:[{label:'취소',value:false},{label:'반려',value:true,cls:'btn-d',before(box){
+            window.__rr = box.querySelector('#rr').value.trim();
+            if(!window.__rr){ toast('사유를 입력하십시오.'); return false; } return true; }}]});
+        if(rr){ await store.update('documents', d.id, { status:'reject', rejectReason:window.__rr }); toast('반려되었습니다.'); renderDocs(); }
+      }
+    });
+
+    $$('[data-resend]').forEach(b => b.onclick = async () => {
+      const d = docs.find(x => x.id === b.dataset.resend);
+      const w = ws.find(x => x.id === d.userId);
+      const res = await sendMail({
+        subject:`[서류제출·재발송] ${w.name} — ${DOC_TYPES.find(t=>t.key===d.type)?.label}`,
+        lines:[`성명 : ${w.name}`, `직종 : ${w.trade}`, `연락처 : ${w.phone}`,
+               `재발송 : ${new Date().toLocaleString('ko-KR')}`],
+        files:[{ fileName:d.fileName, url:'' }]
+      });
+      await store.update('documents', d.id, { mailStatus: res.ok?'sent':'fail', mailedAt:nowISO() });
+      toast(res.ok ? '재발송되었습니다.' : `발송 실패: ${res.reason||'수신처 미지정'}`);
+      renderDocs();
+    });
+  }
+
+  /* ══════════════ 5. 공지 ══════════════ */
+  async function renderNotice(){
+    const list = (await store.list('notices')).sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
+    const reads = await store.list('noticeReads');
+    const ws = await workers();
+
+    $('#v-notice').innerHTML = `
+      <div class="toolbar"><h2 style="font-size:17px;margin:0">공지사항</h2><span style="flex:1"></span>
+        <button class="btn btn-sm btn-p" id="nNew">공지 등록</button></div>
+      <div class="panel"><ul class="list">${list.map(n => {
+        const rc = reads.filter(r => r.noticeId === n.id).length;
+        return `<li class="spread">
+          <div style="min-width:0">
+            <div class="li-t">${n.popup?tag('t-wait','팝업')+' ':''}${n.mustConfirm?tag('t-no','확인필수')+' ':''}${esc(n.title)}</div>
+            <div class="li-m">${esc(n.from)} ~ ${esc(n.to)} · 대상 ${n.target==='all'?'전체':esc(n.target)} · 확인 ${rc}/${ws.length}명</div>
+          </div>
+          <div class="row" style="gap:6px">
+            <button class="btn btn-sm" data-nv="${n.id}">보기</button>
+            <button class="btn btn-sm" data-nd="${n.id}">삭제</button>
+          </div></li>`;
+      }).join('') || '<li class="muted small">등록된 공지가 없습니다.</li>'}</ul></div>`;
+
+    $('#nNew').onclick = async () => {
+      const ok = await modal({
+        title:'공지 등록',
+        body:`<div class="field"><label class="f">제목</label><input type="text" id="nt"></div>
+              <div class="field"><label class="f">내용</label><textarea id="nb"></textarea></div>
+              <div class="grid g2">
+                <div class="field"><label class="f">시작일</label><input type="date" id="nf" value="${todayISO()}"></div>
+                <div class="field"><label class="f">종료일</label><input type="date" id="ne" value="${shift(todayISO(),14)}"></div>
+              </div>
+              <div class="field"><label class="f">대상</label>
+                <select id="ng"><option value="all">전체</option><option value="1팀">1팀</option><option value="2팀">2팀</option></select></div>
+              <div class="field"><label><input type="checkbox" id="np" checked> <span class="small">로그인 시 팝업으로 표시</span></label></div>
+              <div class="field"><label><input type="checkbox" id="nc"> <span class="small">확인 버튼 필수 (확인자 명단 집계)</span></label></div>`,
+        actions:[{label:'취소',value:false},{label:'등록',value:true,cls:'btn-p',before(box){
+          const t = box.querySelector('#nt').value.trim();
+          if(!t){ toast('제목을 입력하십시오.'); return false; }
+          window.__n = { title:t, body:box.querySelector('#nb').value.trim(),
+            from:box.querySelector('#nf').value, to:box.querySelector('#ne').value,
+            target:box.querySelector('#ng').value, popup:box.querySelector('#np').checked,
+            mustConfirm:box.querySelector('#nc').checked };
+          return true; }}]
+      });
+      if(!ok) return;
+      await store.add('notices', { ...window.__n, authorId:me.id });
+      toast('등록되었습니다.'); renderNotice();
+    };
+
+    $$('[data-nv]').forEach(b => b.onclick = async () => {
+      const n = list.find(x => x.id === b.dataset.nv);
+      const rs = reads.filter(r => r.noticeId === n.id);
+      const readers = rs.map(r => uname(ws, r.userId)).filter(Boolean);
+      const unread = ws.filter(w => !rs.some(r => r.userId === w.id)).map(w => w.name);
+      modal({ title:n.title,
+        body:`<p>${esc(n.body).replace(/\n/g,'<br>')}</p>
+              <hr style="border:0;border-top:1px solid var(--line);margin:14px 0">
+              <p class="small"><b>확인 ${readers.length}명</b> — ${esc(readers.join(', ')||'없음')}</p>
+              <p class="small" style="color:var(--warn)"><b>미확인 ${unread.length}명</b> — ${esc(unread.join(', ')||'없음')}</p>`,
+        actions:[{label:'닫기',value:1,cls:'btn-p'}] });
+    });
+    $$('[data-nd]').forEach(b => b.onclick = async () => {
+      if(!await confirmBox('공지 삭제','삭제하면 복구할 수 없습니다. 삭제하시겠습니까?','삭제')) return;
+      await store.remove('notices', b.dataset.nd); toast('삭제되었습니다.'); renderNotice();
+    });
+  }
+
+  /* ══════════════ 6. 게시판 ══════════════ */
+  async function renderBoard(){
+    const posts = (await store.list('posts')).sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
+    $('#v-board').innerHTML = `
+      <div class="toolbar"><h2 style="font-size:17px;margin:0">게시판 관리</h2><span style="flex:1"></span>
+        <button class="btn btn-sm btn-p" id="pNew">공지글 작성</button></div>
+      <div class="tablewrap"><table>
+        <thead><tr><th>구분</th><th>제목</th><th>작성자</th><th>작성일</th><th>상태</th><th></th></tr></thead>
+        <tbody>${posts.map(p => `<tr>
+          <td class="nowrap">${tag('t-info', esc(BOARDS.find(b=>b.key===p.board)?.label||p.board))}</td>
+          <td><button class="btn btn-sm" data-pv="${p.id}" style="border:0;background:none;padding:0;font-weight:600">${esc(p.title)}</button></td>
+          <td class="small">${esc(p.anonymous?'익명':p.authorName)}</td>
+          <td class="mini">${String(p.createdAt).slice(0,10)}</td>
+          <td>${p.hidden?tag('t-no','숨김'):tag('t-ok','노출')}</td>
+          <td class="nowrap"><button class="btn btn-sm" data-ph="${p.id}">${p.hidden?'노출':'숨김'}</button>
+            <button class="btn btn-sm" data-pd="${p.id}">삭제</button></td></tr>`).join('')
+          || '<tr><td colspan="6" class="muted small">게시글이 없습니다.</td></tr>'}</tbody>
+      </table></div>`;
+
+    $$('[data-pv]').forEach(b => b.onclick = () => {
+      const p = posts.find(x => x.id === b.dataset.pv);
+      modal({ title:p.title, body:`<p class="small muted mono">${esc(p.anonymous?'익명':p.authorName)} · ${String(p.createdAt).slice(0,10)}</p><p>${esc(p.body).replace(/\n/g,'<br>')}</p>`,
+        actions:[{label:'닫기',value:1,cls:'btn-p'}] });
+    });
+    $$('[data-ph]').forEach(b => b.onclick = async () => {
+      const p = posts.find(x => x.id === b.dataset.ph);
+      await store.update('posts', p.id, { hidden: !p.hidden }); renderBoard();
+    });
+    $$('[data-pd]').forEach(b => b.onclick = async () => {
+      if(!await confirmBox('게시글 삭제','삭제하시겠습니까?','삭제')) return;
+      await store.remove('posts', b.dataset.pd); toast('삭제되었습니다.'); renderBoard();
+    });
+    $('#pNew').onclick = async () => {
+      const ok = await modal({ title:'공지글 작성',
+        body:`<div class="field"><label class="f">제목</label><input type="text" id="pt"></div>
+              <div class="field"><label class="f">내용</label><textarea id="pb"></textarea></div>`,
+        actions:[{label:'취소',value:false},{label:'등록',value:true,cls:'btn-p',before(box){
+          const t = box.querySelector('#pt').value.trim();
+          if(!t){ toast('제목을 입력하십시오.'); return false; }
+          window.__p = { title:t, body:box.querySelector('#pb').value.trim() }; return true; }}]});
+      if(!ok) return;
+      await store.add('posts', { board:'notice', ...window.__p, authorId:me.id, authorName:me.name, anonymous:false, hidden:false });
+      toast('등록되었습니다.'); renderBoard();
+    };
+  }
+
+  /* ══════════════ 7. 구인 ══════════════ */
+  async function renderJobs(){
+    const jobs = (await store.list('jobs')).sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
+    const apps = await store.list('applications');
+
+    $('#v-jobs').innerHTML = `
+      <div class="toolbar"><h2 style="font-size:17px;margin:0">구인 관리</h2><span style="flex:1"></span>
+        <button class="btn btn-sm btn-p" id="jNew">공고 등록</button></div>
+
+      <div class="panel sec">
+        <div class="panel-h"><h3>공고</h3></div>
+        <div class="tablewrap" style="border:0;border-radius:0"><table>
+          <thead><tr><th>제목</th><th>직종</th><th class="n">인원</th><th class="n">단가</th><th>지원</th><th>상태</th><th></th></tr></thead>
+          <tbody>${jobs.map(j => `<tr>
+            <td>${esc(j.title)}</td><td class="small">${esc(j.trade)}</td>
+            <td class="n">${j.count}</td><td class="n">${won(j.rate)}</td>
+            <td>${apps.filter(a=>a.jobId===j.id).length}명</td>
+            <td>${j.open?tag('t-ok','모집중'):tag('t-off','마감')}</td>
+            <td class="nowrap"><button class="btn btn-sm" data-jt="${j.id}">${j.open?'마감':'재개'}</button>
+              <button class="btn btn-sm" data-jd="${j.id}">삭제</button></td></tr>`).join('')
+            || '<tr><td colspan="7" class="muted small">등록된 공고가 없습니다.</td></tr>'}</tbody>
+        </table></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-h"><h3>지원자</h3></div>
+        <div class="tablewrap" style="border:0;border-radius:0"><table>
+          <thead><tr><th>지원공고</th><th>성명</th><th>연락처</th><th>직종</th><th>경력</th><th>서류</th><th>메일</th><th>상태</th><th></th></tr></thead>
+          <tbody>${apps.map(a => {
+            const j = jobs.find(x => x.id === a.jobId);
+            return `<tr><td class="small">${esc(j?.title||'-')}</td>
+              <td>${esc(a.name)}</td><td class="mini">${esc(a.phone)}</td>
+              <td class="small">${esc(a.trade)}</td><td class="small">${esc(a.career||'-')}</td>
+              <td class="mini">${(a.docs||[]).length}건</td>
+              <td>${a.mailStatus==='sent'?tag('t-ok','발송'):a.mailStatus==='fail'?tag('t-no','실패'):tag('t-wait','대기')}</td>
+              <td>${a.status==='hired'?tag('t-ok','채용'):a.status==='drop'?tag('t-no','불채용'):tag('t-wait','검토중')}</td>
+              <td class="nowrap">${a.status==='wait'
+                ? `<button class="btn btn-sm btn-p" data-hire="${a.id}">채용</button>
+                   <button class="btn btn-sm" data-drop="${a.id}">불채용</button>` : ''}</td></tr>`;
+          }).join('') || '<tr><td colspan="9" class="muted small">지원자가 없습니다.</td></tr>'}</tbody>
+        </table></div>
+      </div>`;
+
+    $('#jNew').onclick = async () => {
+      const ok = await modal({ title:'공고 등록',
+        body:`<div class="field"><label class="f">제목</label><input type="text" id="jt" placeholder="예: 형틀목공 모집 (봉담 제1현장)"></div>
+              <div class="grid g2">
+                <div class="field"><label class="f">직종</label><select id="jr">${trades.map(t=>`<option value="${esc(t.name)}" data-r="${t.rate}">${esc(t.name)}</option>`).join('')}</select></div>
+                <div class="field"><label class="f">단가</label><input type="number" id="jp" value="${trades[0]?.rate||0}" step="1000"></div>
+              </div>
+              <div class="grid g2">
+                <div class="field"><label class="f">모집 인원</label><input type="number" id="jc" value="1" min="1"></div>
+                <div class="field"><label class="f">기간</label><input type="text" id="jd" value="상시"></div>
+              </div>
+              <div class="field"><label class="f">근무지</label><input type="text" id="jl" value="${esc(site.address||'')}"></div>
+              <div class="field"><label class="f">상세 내용</label><textarea id="jb"></textarea></div>
+              <div class="field"><label class="f">문의 연락처</label><input type="tel" id="jn" value="${esc(me.phone||'')}"></div>
+              <div class="field"><label><input type="checkbox" id="jo" checked> <span class="small">로그인 없이 외부 공개</span></label></div>`,
+        actions:[{label:'취소',value:false},{label:'등록',value:true,cls:'btn-p',before(box){
+          const t = box.querySelector('#jt').value.trim();
+          if(!t){ toast('제목을 입력하십시오.'); return false; }
+          window.__j = { title:t, trade:box.querySelector('#jr').value, rate:+box.querySelector('#jp').value,
+            count:+box.querySelector('#jc').value, period:box.querySelector('#jd').value,
+            location:box.querySelector('#jl').value, desc:box.querySelector('#jb').value,
+            contact:box.querySelector('#jn').value, public:box.querySelector('#jo').checked, open:true };
+          return true; }}]});
+      if(!ok) return;
+      await store.add('jobs', window.__j); toast('등록되었습니다.'); renderJobs();
+    };
+
+    $$('[data-jt]').forEach(b => b.onclick = async () => {
+      const j = jobs.find(x => x.id === b.dataset.jt);
+      await store.update('jobs', j.id, { open: !j.open }); renderJobs();
+    });
+    $$('[data-jd]').forEach(b => b.onclick = async () => {
+      if(!await confirmBox('공고 삭제','삭제하시겠습니까?','삭제')) return;
+      await store.remove('jobs', b.dataset.jd); renderJobs();
+    });
+    $$('[data-drop]').forEach(b => b.onclick = async () => {
+      await store.update('applications', b.dataset.drop, { status:'drop' }); renderJobs();
+    });
+    $$('[data-hire]').forEach(b => b.onclick = async () => {
+      const a = apps.find(x => x.id === b.dataset.hire);
+      if(!await confirmBox('채용 확정', `${a.name} 지원자를 채용 확정하고 근로자 계정을 생성합니다.`, '채용')) return;
+      const rate = trades.find(t => t.name === a.trade)?.rate || 0;
+      await store.add('users', {
+        name:a.name, phone:a.phone, role:'worker', trade:a.trade, unitRate:rate,
+        part: isDev ? '1팀' : me.part, approved:true, geoConsent:false
+      });
+      // 지원 시 제출한 서류 승계
+      for(const d of (a.docs||[])){
+        await store.add('documents', { userId:'', type:d.type, status:'wait',
+          fileName:d.fileName, fileUrl:d.url||'', submittedAt:nowISO(), mailStatus:'sent', note:'채용 시 승계' });
+      }
+      await store.update('applications', a.id, { status:'hired' });
+      toast('채용 확정 — 근로자 계정이 생성되었습니다.');
+      renderJobs();
+    });
+  }
+
+  /* ══════════════ 8. 근로자 ══════════════ */
+  async function renderUsers(){
+    const us = (await allUsers()).filter(u => scope(u)).sort((a,b) => (a.approved?1:0)-(b.approved?1:0));
+    $('#v-users').innerHTML = `
+      <div class="toolbar"><h2 style="font-size:17px;margin:0">근로자 관리</h2>
+        <span class="mini">${isDev?'전체':me.part} · ${us.length}명</span>
+        <span style="flex:1"></span>
+        <button class="btn btn-sm btn-p" id="uNew">근로자 추가</button></div>
+      <div class="tablewrap"><table>
+        <thead><tr><th>이름</th><th>연락처</th><th>역할</th><th>직종</th><th class="n">단가</th><th>소속</th><th>상태</th><th></th></tr></thead>
+        <tbody>${us.map(u => `<tr>
+          <td class="nowrap">${esc(u.name)}</td><td class="mini">${esc(u.phone)}</td>
+          <td>${tag('t-info', ROLES[u.role].label)}</td>
+          <td class="small">${esc(u.trade||'-')}</td>
+          <td class="n">${u.unitRate?won(u.unitRate):'-'}</td>
+          <td class="small">${esc(u.part||'-')}</td>
+          <td>${u.approved?tag('t-ok','정상'):tag('t-wait','승인대기')}</td>
+          <td class="nowrap">
+            ${!u.approved?`<button class="btn btn-sm btn-p" data-ua="${u.id}">승인</button>`:''}
+            <button class="btn btn-sm" data-ue="${u.id}">수정</button>
+            ${isDev && u.id!==me.id?`<button class="btn btn-sm" data-ur="${u.id}">삭제</button>`:''}
+          </td></tr>`).join('')}</tbody>
+      </table></div>`;
+
+    $$('[data-ua]').forEach(b => b.onclick = async () => {
+      await store.update('users', b.dataset.ua, { approved:true });
+      await store.log('users', b.dataset.ua, 'approve', '가입 승인', me);
+      toast('승인되었습니다.'); renderUsers();
+    });
+    $$('[data-ur]').forEach(b => b.onclick = async () => {
+      if(!await confirmBox('계정 삭제','출역 기록은 남습니다. 계정을 삭제하시겠습니까?','삭제')) return;
+      await store.remove('users', b.dataset.ur); renderUsers();
+    });
+    $$('[data-ue]').forEach(b => b.onclick = () => editUser(us.find(u => u.id === b.dataset.ue)));
+    $('#uNew').onclick = () => editUser(null);
+
+    async function editUser(u){
+      const roleOpts = (isDev ? ['dev','lead','worker'] : ['worker'])
+        .map(r => `<option value="${r}" ${u?.role===r?'selected':''}>${ROLES[r].label}</option>`).join('');
+      const ok = await modal({
+        title: u ? `${u.name} 정보 수정` : '근로자 추가',
+        body:`<div class="grid g2">
+                <div class="field"><label class="f">이름</label><input type="text" id="un" value="${esc(u?.name||'')}"></div>
+                <div class="field"><label class="f">연락처</label><input type="tel" id="up" value="${esc(u?.phone||'')}"></div>
+              </div>
+              <div class="grid g2">
+                <div class="field"><label class="f">역할</label><select id="ur2">${roleOpts}</select></div>
+                <div class="field"><label class="f">소속 팀</label><select id="uq">
+                  <option ${u?.part==='1팀'?'selected':''}>1팀</option><option ${u?.part==='2팀'?'selected':''}>2팀</option>
+                  <option ${u?.part==='본사'?'selected':''}>본사</option></select></div>
+              </div>
+              <div class="grid g2">
+                <div class="field"><label class="f">직종</label><select id="ut">
+                  ${trades.map(t=>`<option value="${esc(t.name)}" data-r="${t.rate}" ${u?.trade===t.name?'selected':''}>${esc(t.name)}</option>`).join('')}</select></div>
+                <div class="field"><label class="f">단가 (원/공수)</label><input type="number" id="uu" value="${u?.unitRate||trades[0]?.rate||0}" step="1000"></div>
+              </div>
+              <div class="field"><label><input type="checkbox" id="uk" ${u?.approved!==false?'checked':''}> <span class="small">승인 상태</span></label></div>`,
+        actions:[{label:'취소',value:false},{label:'저장',value:true,cls:'btn-p',before(box){
+          const n = box.querySelector('#un').value.trim();
+          if(!n){ toast('이름을 입력하십시오.'); return false; }
+          window.__u = { name:n, phone:box.querySelector('#up').value.trim(),
+            role:box.querySelector('#ur2').value, part:box.querySelector('#uq').value,
+            trade:box.querySelector('#ut').value, unitRate:+box.querySelector('#uu').value,
+            approved:box.querySelector('#uk').checked };
+          return true; }}]
+      });
+      if(!ok) return;
+      if(u){ await store.update('users', u.id, window.__u); await store.log('users', u.id, 'edit', '정보 수정', me); }
+      else  { await store.add('users', window.__u); }
+      toast('저장되었습니다.'); renderUsers();
+    }
+  }
+
+  /* ══════════════ 9. 기준정보 ══════════════ */
+  async function renderSet(){
+    const f = (id,label,val,step='0.001') =>
+      `<div class="field"><label class="f" for="${id}">${label}</label>
+       <input type="number" id="${id}" value="${val}" step="${step}"></div>`;
+
+    $('#v-set').innerHTML = `
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:16px; align-items:start">
+
+        <div class="panel">
+          <div class="panel-h"><h3>현장 정보</h3></div>
+          <div class="panel-b">
+            <div class="field"><label class="f">현장명</label><input type="text" id="sName" value="${esc(site.name||'')}"></div>
+            <div class="field"><label class="f">주소</label><input type="text" id="sAddr" value="${esc(site.address||'')}"></div>
+            <div class="grid g2">
+              <div class="field"><label class="f">위도</label><input type="number" id="sLat" value="${site.lat}" step="0.000001"></div>
+              <div class="field"><label class="f">경도</label><input type="number" id="sLng" value="${site.lng}" step="0.000001"></div>
+            </div>
+            <div class="grid g2">
+              <div class="field"><label class="f">허용 반경(m)</label><input type="number" id="sRad" value="${site.radius}"></div>
+              <div class="field" style="display:flex;align-items:flex-end;padding-bottom:9px">
+                <button class="btn btn-sm btn-block" id="sHere">현재 위치로 설정</button></div>
+            </div>
+            <div class="grid g2">
+              <div class="field"><label class="f">작업 시작</label><input type="time" id="sWs" value="${site.workStart||'07:00'}"></div>
+              <div class="field"><label class="f">작업 종료</label><input type="time" id="sWe" value="${site.workEnd||'17:00'}"></div>
+            </div>
+            <button class="btn btn-p btn-block" id="sSave">현장 정보 저장</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-h"><h3>서류 자동발송</h3></div>
+          <div class="panel-b">
+            <div class="field"><label class="f">회사 수신 이메일</label>
+              <input type="email" id="mTo" value="${esc(mail.to||'')}" placeholder="hr@company.co.kr">
+              <div class="hint">비워두면 발송이 대기 상태로 쌓이며, 지정 후 재발송할 수 있습니다.</div></div>
+            <div class="field"><label class="f">첨부 방식</label>
+              <select id="mMode">
+                <option value="link" ${mail.mode==='link'?'selected':''}>기한부 다운로드 링크</option>
+                <option value="attach" ${mail.mode==='attach'?'selected':''}>파일 직접 첨부</option>
+              </select></div>
+            <div class="field"><label><input type="checkbox" id="mDig" ${mail.digest?'checked':''}>
+              <span class="small">건별 대신 1일 1회 요약 발송</span></label></div>
+            <button class="btn btn-p btn-block" id="mSave">발송 설정 저장</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-h"><h3>공수 계수</h3></div>
+          <div class="panel-b">
+            <div class="set-grid">
+              ${f('kH','1공수 기준시간', S.hoursPerGongsu, '0.5')}
+              ${f('kO','연장 가산율', S.overtimeRate, '0.1')}
+              ${f('kN','야간 가산', S.nightRate, '0.1')}
+              ${f('kD','휴일 가산율', S.holidayRate, '0.1')}
+              ${f('kM','식대(비과세)', S.mealAllowance, '1000')}
+              ${f('kT','교통비(비과세)', S.transAllowance, '1000')}
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-h"><h3>공제 요율</h3><span class="mini">적용 시점 기준 확인 필수</span></div>
+          <div class="panel-b">
+            <div class="set-grid">
+              ${f('rE','고용보험(근로자)', S.employmentIns)}
+              ${f('rA','산재보험(사업주)', S.accidentIns)}
+              ${f('rP','국민연금(근로자)', S.pensionRate)}
+              ${f('rH','건강보험(근로자)', S.healthRate)}
+              ${f('rL','장기요양(건보 대비)', S.ltCareRate)}
+              ${f('rD','연금·건보 적용 일수', S.pensionMinDays, '1')}
+              ${f('rC','일용 근로소득공제', S.dayDeduction, '10000')}
+              ${f('rI','소득세율', S.incomeTaxRate)}
+              ${f('rK','근로소득세액공제율', S.taxCreditRate)}
+              ${f('rG','지방소득세율', S.localTaxRate)}
+              ${f('rM','소액부징수 기준', S.minTaxLimit, '100')}
+            </div>
+            <button class="btn btn-p btn-block" id="kSave" style="margin-top:10px">계수·요율 저장</button>
+            <p class="hint">저장해도 이미 확정된 과거 정산에는 영향을 주지 않습니다.</p>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-h"><h3>직종별 단가</h3>
+            <button class="btn btn-sm" id="tAdd">직종 추가</button></div>
+          <div class="panel-b">
+            <div id="tList"></div>
+            <button class="btn btn-p btn-block" id="tSave" style="margin-top:10px">단가 저장</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-h"><h3>시스템</h3></div>
+          <div class="panel-b stack">
+            <div class="banner ${DEMO?'b-warn':'b-ok'}">
+              ${DEMO ? '데모 모드 — 데이터가 이 브라우저에만 저장됩니다. assets/config.js 에 Firebase 설정을 입력하면 운영 모드로 전환됩니다.'
+                     : '운영 모드 — Firebase에 연결되어 있습니다.'}
+            </div>
+            ${DEMO?'<button class="btn btn-d" id="reset">데모 데이터 초기화</button>':''}
+          </div>
+        </div>
+
+      </div>`;
+
+    /* 현장 */
+    $('#sHere').onclick = async () => {
+      const { getPosition } = await import('./assets/app.js');
+      const p = await getPosition();
+      if(!p.ok) return toast(p.reason);
+      $('#sLat').value = p.lat.toFixed(6); $('#sLng').value = p.lng.toFixed(6);
+      toast(`현재 위치로 설정했습니다. (정확도 ±${p.acc}m)`);
+    };
+    $('#sSave').onclick = async () => {
+      site = { ...site, name:$('#sName').value.trim(), address:$('#sAddr').value.trim(),
+               lat:+$('#sLat').value, lng:+$('#sLng').value, radius:+$('#sRad').value,
+               workStart:$('#sWs').value, workEnd:$('#sWe').value };
+      await store.saveMeta('site', site); toast('저장되었습니다.');
+    };
+
+    /* 메일 */
+    $('#mSave').onclick = async () => {
+      mail = { to:$('#mTo').value.trim(), mode:$('#mMode').value, digest:$('#mDig').checked };
+      await store.saveMeta('mail', mail); toast('저장되었습니다.');
+    };
+
+    /* 계수·요율 */
+    $('#kSave').onclick = async () => {
+      S = { ...S,
+        hoursPerGongsu:+$('#kH').value, overtimeRate:+$('#kO').value, nightRate:+$('#kN').value,
+        holidayRate:+$('#kD').value, mealAllowance:+$('#kM').value, transAllowance:+$('#kT').value,
+        employmentIns:+$('#rE').value, accidentIns:+$('#rA').value, pensionRate:+$('#rP').value,
+        healthRate:+$('#rH').value, ltCareRate:+$('#rL').value, pensionMinDays:+$('#rD').value,
+        dayDeduction:+$('#rC').value, incomeTaxRate:+$('#rI').value, taxCreditRate:+$('#rK').value,
+        localTaxRate:+$('#rG').value, minTaxLimit:+$('#rM').value
+      };
+      await store.saveMeta('settings', S); toast('저장되었습니다.');
+    };
+
+    /* 단가 */
+    function paintTrades(){
+      $('#tList').innerHTML = trades.map((t,i) => `
+        <div class="rate-row">
+          <input type="text" value="${esc(t.name)}" data-tn="${i}">
+          <input type="number" value="${t.rate}" step="1000" data-tr="${i}">
+          <button class="btn btn-sm" data-tx="${i}">✕</button>
+        </div>`).join('');
+      $$('[data-tx]').forEach(b => b.onclick = () => { trades.splice(+b.dataset.tx,1); paintTrades(); });
+    }
+    paintTrades();
+    $('#tAdd').onclick = () => { trades.push({ name:'신규직종', rate:200000 }); paintTrades(); };
+    $('#tSave').onclick = async () => {
+      trades = $$('[data-tn]').map((inp,i) => ({
+        name: inp.value.trim() || '무명',
+        rate: +$$('[data-tr]')[i].value || 0
+      }));
+      await store.saveMeta('trades', { list: trades }); toast('저장되었습니다.');
+    };
+
+    const rs = $('#reset');
+    if(rs) rs.onclick = async () => {
+      if(!await confirmBox('데모 초기화','모든 데모 데이터가 삭제되고 초기 상태로 되돌아갑니다.','초기화')) return;
+      store.resetDemo(); location.href = 'index.html';
+    };
+  }
+
+  go('dash');
+}
+</script>
+</body>
+</html>

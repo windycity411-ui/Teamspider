@@ -1,0 +1,137 @@
+rules_version = '2';
+
+/* ══════════════════════════════════════════════════════════
+   노가다의신 · Firestore 보안 규칙
+   ──────────────────────────────────────────────────────────
+   역할  dev(개발자) > lead(직영팀장) > worker(근로자) > seeker(구직자)
+   Firebase 콘솔 → Firestore → 규칙 에 붙여넣고 게시하십시오.
+   ══════════════════════════════════════════════════════════ */
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn()      { return request.auth != null; }
+    function myDoc()         { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function role()          { return signedIn() ? myDoc().role : 'guest'; }
+    function isDev()         { return role() == 'dev'; }
+    function isLead()        { return role() == 'lead' || isDev(); }
+    function isApproved()    { return signedIn() && myDoc().approved == true; }
+    function myPart()        { return myDoc().part; }
+    function isMe(uid)       { return signedIn() && request.auth.uid == uid; }
+
+    /* ── 계정 ───────────────────────────────────────────
+       본인 정보는 본인이 읽기/제한 수정, 승인·역할·단가는 관리자만 */
+    match /users/{uid} {
+      allow read:   if isMe(uid) || isLead();
+      allow create: if signedIn();                       // 가입 신청
+      allow update: if isDev()
+                    || (isLead() && resource.data.part == myPart())
+                    || (isMe(uid)
+                        && !request.resource.data.diff(resource.data)
+                              .affectedKeys().hasAny(['role','approved','unitRate','part']));
+      allow delete: if isDev();
+    }
+
+    /* ── 출역 ───────────────────────────────────────────
+       근로자는 본인 기록 생성/퇴근 기록만, 수정·승인은 관리자 */
+    match /attendance/{id} {
+      allow read:   if isLead() || isMe(resource.data.userId);
+      allow create: if isLead()
+                    || (isApproved() && isMe(request.resource.data.userId)
+                        && request.resource.data.confirmed == false);
+      allow update: if isLead()
+                    || (isMe(resource.data.userId) && resource.data.confirmed == false
+                        && !request.resource.data.diff(resource.data)
+                              .affectedKeys().hasAny(['status','confirmed','userId','date']));
+      allow delete: if isDev();                          // 삭제는 개발자만(증빙 보존)
+
+      match /logs/{logId} {                              // 수정 이력 — 추가만, 변경 불가
+        allow read:   if isLead();
+        allow create: if isLead();
+        allow update, delete: if false;
+      }
+    }
+
+    /* ── 서류 ───────────────────────────────────────────
+       본인 제출·열람, 검토(승인/반려)는 관리자 */
+    match /documents/{id} {
+      allow read:   if isLead() || isMe(resource.data.userId);
+      allow create: if isApproved() && isMe(request.resource.data.userId);
+      allow update: if isLead()
+                    || (isMe(resource.data.userId)
+                        && !request.resource.data.diff(resource.data)
+                              .affectedKeys().hasAny(['status','rejectReason']));
+      allow delete: if isDev();
+    }
+
+    /* ── 공지 ─────────────────────────────────────────── */
+    match /notices/{id} {
+      allow read:   if signedIn();
+      allow write:  if isLead();
+    }
+    match /noticeReads/{id} {
+      allow read:   if isLead() || isMe(resource.data.userId);
+      allow create: if isMe(request.resource.data.userId);
+      allow update, delete: if false;                    // 확인 기록은 변조 불가
+    }
+
+    /* ── 게시판 ─────────────────────────────────────────
+       본인 글만 수정, 숨김·삭제는 관리자 */
+    match /posts/{id} {
+      allow read:   if signedIn();
+      allow create: if isApproved();
+      allow update: if isLead()
+                    || (isMe(resource.data.authorId)
+                        && !request.resource.data.diff(resource.data)
+                              .affectedKeys().hasAny(['hidden','board','authorId']));
+      allow delete: if isLead();
+    }
+    match /comments/{id} {
+      allow read:   if signedIn();
+      allow create: if isApproved();
+      allow update: if isMe(resource.data.authorId) || isLead();
+      allow delete: if isLead();
+    }
+
+    /* ── 구인구직 ───────────────────────────────────────
+       공고는 비로그인 열람 허용(public), 지원서는 쓰기만 허용 */
+    match /jobs/{id} {
+      allow read:   if resource.data.public == true || signedIn();
+      allow write:  if isLead();
+    }
+    match /applications/{id} {
+      allow read:   if isLead();
+      allow create: if true;                             // 비회원 지원 허용
+      allow update: if isLead();
+      allow delete: if isDev();
+    }
+
+    /* ── 정산 ───────────────────────────────────────────
+       확정 정산은 개발자만 수정 가능(소급 변경 차단) */
+    match /payrolls/{id} {
+      allow read:   if isLead() || isMe(resource.data.userId);
+      allow create, update: if isLead() && (resource == null || resource.data.locked != true);
+      allow delete: if isDev();
+    }
+
+    /* ── 기준정보 ───────────────────────────────────────
+       요율·단가는 모두 읽되, 수정은 개발자만 */
+    match /meta/{doc} {
+      allow read:   if true;
+      allow write:  if isDev();
+    }
+
+    /* ── 로그 ───────────────────────────────────────────
+       추가만 가능, 변경·삭제 불가 */
+    match /logs/{id} {
+      allow read:   if isLead();
+      allow create: if signedIn();
+      allow update, delete: if false;
+    }
+
+    /* 그 외 전부 차단 */
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
