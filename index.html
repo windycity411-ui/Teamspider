@@ -178,11 +178,20 @@ import { won } from './assets/gongsu.js';
 await store.ready();
 topbar(null);
 
-/* 이미 로그인되어 있으면 홈으로 */
-const s = store.session();
-if(s){
-  const u = await store.get('users', s.id);
-  if(u) location.replace(ROLES[u.role].home);
+/* 이미 로그인되어 있으면 홈으로
+   ─ 운영 모드에서는 Firebase 인증 상태가 기준이므로, 남아 있는
+     예전 세션 기록은 버린다. (남아 있으면 권한 없는 문서를 읽다가
+     초기화가 통째로 멈춤) */
+if(DEMO){
+  const s = store.session();
+  if(s){
+    try{
+      const u = await store.get('users', s.id);
+      if(u) location.replace(ROLES[u.role].home);
+    }catch(e){ store.clearSession(); }
+  }
+}else{
+  store.clearSession();
 }
 
 /* ── 탭 전환 ───────────────────────────── */
@@ -197,7 +206,8 @@ Object.keys(tabs).forEach(t => {
 });
 
 /* ── 직종 목록 ─────────────────────────── */
-const tradesMeta = await store.meta('trades');
+let tradesMeta = null;
+try{ tradesMeta = await store.meta('trades'); }catch(e){ /* 기준정보 미등록 — 기본값 사용 */ }
 const trades = Array.isArray(tradesMeta) ? tradesMeta : (tradesMeta?.list || TRADES_DEFAULT);
 $('#jTrade').innerHTML = trades.map(t => `<option value="${esc(t.name)}">${esc(t.name)}</option>`).join('');
 
@@ -249,11 +259,13 @@ $('#loginPw').addEventListener('keydown', e => { if(e.key === 'Enter') doLoginBy
 
 /* 이미 로그인되어 있으면 통과 */
 if(!DEMO){
-  const uid0 = await auth.currentUid();
-  if(uid0){
-    const u0 = await store.get('users', uid0);
-    if(u0) doLogin(u0);
-  }
+  try{
+    const uid0 = await auth.currentUid();
+    if(uid0){
+      const u0 = await store.get('users', uid0);
+      if(u0) doLogin(u0);
+    }
+  }catch(e){ /* 인증 상태 확인 실패 — 로그인 화면 그대로 */ }
 }
 
 /* ── 데모 빠른 진입 ────────────────────── */
@@ -333,7 +345,9 @@ $('#btnJoin').onclick = async () => {
 
 /* ── 채용공고 ──────────────────────────── */
 /* 비로그인 상태에서도 읽히도록 공개 공고만 서버에서 걸러 옴 */
-const jobs = (await store.list('jobs', j => j.open, { where:['public','==',true] }));
+let jobs = [];
+try{ jobs = await store.list('jobs', j => j.open, { where:['public','==',true] }); }
+catch(e){ /* 공고 조회 실패 — 목록만 비움 */ }
 const wrap = $('#jobList');
 
 if(!jobs.length){
