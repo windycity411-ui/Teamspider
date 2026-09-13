@@ -232,16 +232,30 @@ export const store = {
   },
 
   /* ── 조회 ──────────────────────────────────────────── */
-  async list(col, where = null){
+  /**
+   * 목록 조회
+   * @param {string} col  컬렉션
+   * @param {function|null} filter  가져온 뒤 걸 자바스크립트 필터
+   * @param {object} opts  { where:[필드, 연산자, 값] } — 서버 쪽 조건.
+   *   보안규칙이 문서 값에 따라 읽기를 제한하는 컬렉션(예: 공개 공고만
+   *   열람 가능한 jobs)은 반드시 이 조건을 함께 보내야 거부되지 않음.
+   */
+  async list(col, filter = null, opts = {}){
     if(DEMO){
       let rows = (demoDb[col] || []).slice();
-      if(where) rows = rows.filter(where);
+      if(opts.where){
+        const [f, op, v] = opts.where;
+        rows = rows.filter(r => op === '==' ? r[f] === v : true);
+      }
+      if(filter) rows = rows.filter(filter);
       return rows;
     }
-    const { collection, getDocs } = fb.fs;
-    const snap = await getDocs(collection(fb.db, col));
+    const { collection, getDocs, query, where } = fb.fs;
+    const base = collection(fb.db, col);
+    const q = opts.where ? query(base, where(...opts.where)) : base;
+    const snap = await getDocs(q);
     let rows = snap.docs.map(d => ({ id:d.id, ...d.data() }));
-    if(where) rows = rows.filter(where);
+    if(filter) rows = rows.filter(filter);
     return rows;
   },
 
