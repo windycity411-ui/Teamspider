@@ -91,9 +91,13 @@
 
         <div id="paneLogin">
           <div class="field">
-            <label class="f" for="loginPhone">휴대폰 번호</label>
-            <input type="tel" id="loginPhone" placeholder="010-0000-0000" autocomplete="tel">
-            <div class="hint">등록된 번호로 로그인합니다. 운영 전환 시 SMS 인증이 추가됩니다.</div>
+            <label class="f" for="loginId">아이디</label>
+            <input type="text" id="loginId" placeholder="영문 4~20자" autocomplete="username" autocapitalize="none" spellcheck="false">
+          </div>
+          <div class="field">
+            <label class="f" for="loginPw">비밀번호</label>
+            <input type="password" id="loginPw" placeholder="6자 이상" autocomplete="current-password">
+            <div class="hint" id="loginHint">아이디와 비밀번호로 로그인합니다.</div>
           </div>
           <button class="btn btn-p btn-block" id="btnLogin" style="height:48px;font-size:16px">로그인</button>
 
@@ -109,6 +113,21 @@
         </div>
 
         <div id="paneJoin" hidden>
+          <div class="field">
+            <label class="f" for="jId">아이디</label>
+            <input type="text" id="jId" placeholder="영문으로 시작, 4~20자" autocomplete="username" autocapitalize="none" spellcheck="false">
+            <div class="hint">현장에서 부르기 쉬운 것으로 정하십시오. 나중에 바꿀 수 없습니다.</div>
+          </div>
+          <div class="grid g2">
+            <div class="field">
+              <label class="f" for="jPw">비밀번호</label>
+              <input type="password" id="jPw" placeholder="6자 이상" autocomplete="new-password">
+            </div>
+            <div class="field">
+              <label class="f" for="jPw2">비밀번호 확인</label>
+              <input type="password" id="jPw2" autocomplete="new-password">
+            </div>
+          </div>
           <div class="field">
             <label class="f" for="jName">이름</label>
             <input type="text" id="jName" autocomplete="name">
@@ -152,7 +171,7 @@
 
 <script type="module">
 import { store, uid, nowISO } from './assets/store.js';
-import { ROLES, TRADES_DEFAULT, DEMO, DOC_TYPES } from './assets/config.js';
+import { ROLES, TRADES_DEFAULT, DEMO, DOC_TYPES, STORAGE } from './assets/config.js';
 import { $, $$, esc, toast, modal, topbar, sendMail, readFileAsURL } from './assets/app.js';
 import { won } from './assets/gongsu.js';
 
@@ -190,18 +209,56 @@ async function doLogin(user){
   location.href = ROLES[user.role].home;
 }
 
-$('#btnLogin').onclick = async () => {
-  const p = norm($('#loginPhone').value);
-  if(p.length < 10) return toast('휴대폰 번호를 정확히 입력하십시오.');
-  const users = await store.list('users');
-  const u = users.find(x => norm(x.phone) === p);
-  if(!u) return toast('등록되지 않은 번호입니다. 가입 신청을 먼저 하십시오.');
-  doLogin(u);
-};
-$('#loginPhone').addEventListener('keydown', e => { if(e.key === 'Enter') $('#btnLogin').click(); });
+/* ── 로그인 ────────────────────────────── */
+let auth = null;
+if(!DEMO) auth = await import('./assets/auth.js');
+
+async function doLoginById(){
+  const btn = $('#btnLogin');
+  const id  = $('#loginId').value.trim();
+  const pw  = $('#loginPw').value;
+
+  if(DEMO){
+    const users = await store.list('users');
+    const u = users.find(x => (x.loginId || '').toLowerCase() === id.toLowerCase());
+    if(!u) return toast('등록되지 않은 아이디입니다. 가입 신청을 먼저 하십시오.');
+    return doLogin(u);
+  }
+
+  if(!id) return toast('아이디를 입력하십시오.');
+  if(!pw) return toast('비밀번호를 입력하십시오.');
+
+  btn.disabled = true; btn.textContent = '확인 중…';
+  try{
+    const uid = await auth.signIn(id, pw);
+    const u = await store.get('users', uid);
+    if(!u){
+      toast('계정 정보가 없습니다. 가입을 다시 진행해 주십시오.');
+      await auth.logout();
+      return;
+    }
+    doLogin(u);
+  }catch(e){
+    toast(auth.authMessage(e));
+  }finally{ btn.disabled = false; btn.textContent = '로그인'; }
+}
+
+$('#btnLogin').onclick = doLoginById;
+$('#loginId').addEventListener('keydown', e => { if(e.key === 'Enter') $('#loginPw').focus(); });
+$('#loginPw').addEventListener('keydown', e => { if(e.key === 'Enter') doLoginById(); });
+
+/* 이미 로그인되어 있으면 통과 */
+if(!DEMO){
+  const uid0 = await auth.currentUid();
+  if(uid0){
+    const u0 = await store.get('users', uid0);
+    if(u0) doLogin(u0);
+  }
+}
 
 /* ── 데모 빠른 진입 ────────────────────── */
 if(DEMO){
+  $('#loginHint').textContent = '데모 모드 — 아이디만 맞으면 들어갑니다 (admin / lead1 / workerA …)';
   $('#demoQuick').hidden = false;
   $$('#demoQuick button').forEach(b => {
     b.onclick = async () => {
@@ -221,29 +278,57 @@ if(DEMO){
 
 /* ── 가입 ──────────────────────────────── */
 $('#btnJoin').onclick = async () => {
-  const name = $('#jName').value.trim();
+  const btn   = $('#btnJoin');
+  const name  = $('#jName').value.trim();
   const phone = $('#jPhone').value.trim();
+  const id    = $('#jId').value.trim();
+  const pw    = $('#jPw').value;
+  const pw2   = $('#jPw2').value;
+
+  if(!DEMO){
+    const e1 = auth.checkId(id);  if(e1) return toast(e1);
+    const e2 = auth.checkPw(pw);  if(e2) return toast(e2);
+    if(pw !== pw2) return toast('비밀번호가 서로 다릅니다.');
+  }else{
+    if(!id) return toast('아이디를 입력하십시오.');
+  }
   if(!name) return toast('이름을 입력하십시오.');
   if(norm(phone).length < 10) return toast('휴대폰 번호를 정확히 입력하십시오.');
   if(!$('#jAgree').checked) return toast('위치정보 수집 동의가 필요합니다.');
 
-  const users = await store.list('users');
-  if(users.some(x => norm(x.phone) === norm(phone))) return toast('이미 등록된 번호입니다.');
-
   const trade = $('#jTrade').value;
-  const rate = trades.find(t => t.name === trade)?.rate || 0;
-  await store.add('users', {
-    name, phone, role:'worker', trade, unitRate:rate,
-    part: $('#jPart').value, approved:false, geoConsent:true, geoConsentAt:nowISO()
-  });
+  const rate  = trades.find(t => t.name === trade)?.rate || 0;
+  const rec = {
+    loginId: id.toLowerCase(), name, phone, role:'worker', trade, unitRate:rate,
+    part: $('#jPart').value, approved:false,
+    geoConsent:true, geoConsentAt:nowISO(), createdAt:nowISO()
+  };
+
+  btn.disabled = true; btn.textContent = '처리 중…';
+  try{
+    if(DEMO){
+      const users = await store.list('users');
+      if(users.some(x => (x.loginId||'').toLowerCase() === id.toLowerCase()))
+        { toast('이미 사용 중인 아이디입니다.'); return; }
+      await store.add('users', rec);
+    }else{
+      const uid = await auth.signUp(id, pw);      // 계정 생성 (자동 로그인됨)
+      await store.setUser(uid, rec);              // 문서 ID = Auth UID
+    }
+  }catch(e){
+    toast(DEMO ? '가입에 실패했습니다.' : auth.authMessage(e));
+    return;
+  }finally{ btn.disabled = false; btn.textContent = '가입 신청'; }
+
   await modal({
     title:'가입 신청 완료',
-    body:`<p>관리자 승인 후 이용 가능합니다.<br>승인되면 입력하신 번호로 로그인하십시오.</p>
+    body:`<p>관리자 승인 후 이용 가능합니다.<br>승인되면 방금 정한 아이디로 로그인하십시오.</p>
           <p class="small muted">승인 전에는 출퇴근·서류제출 기능이 잠겨 있습니다.</p>`,
     actions:[{ label:'확인', value:true, cls:'btn-p' }]
   });
+  if(!DEMO){ location.href = 'worker.html'; return; }
   $('#tabLogin').click();
-  $('#loginPhone').value = phone;
+  $('#loginId').value = id;
 };
 
 /* ── 채용공고 ──────────────────────────── */
@@ -318,9 +403,16 @@ $$('[data-apply]').forEach(b => {
     if(!ok) return;
 
     const a = window.__ap;
+    const stamp = Date.now();
     const docs = [];
     for(const f of a.files){
-      docs.push({ type:f.type, fileName:f.file.name, url: await readFileAsURL(f.file) });
+      if(!DEMO && !STORAGE){                       // 보관소 미설정 — 파일명만 접수
+        docs.push({ type:f.type, fileName:f.file.name, url:'', pending:true });
+        continue;
+      }
+      const ext = (f.file.name.split('.').pop() || 'bin').toLowerCase();
+      const up = await store.uploadFile(`applications/${stamp}/${f.type}.${ext}`, f.file);
+      docs.push({ type:f.type, fileName:f.file.name, url: up.url, path: up.path });
     }
 
     const app = await store.add('applications', {

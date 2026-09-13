@@ -1,0 +1,46 @@
+rules_version = '2';
+
+/* ══════════════════════════════════════════════════════════
+   팀 스파이더 · Cloud Storage 보안 규칙
+   ──────────────────────────────────────────────────────────
+   Firebase 콘솔 → Storage → Rules 에 붙여넣고 게시하십시오.
+   ══════════════════════════════════════════════════════════ */
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function signedIn(){ return request.auth != null; }
+    function myDoc(){
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data;
+    }
+    function isLead(){
+      return signedIn() && (myDoc().role == 'lead' || myDoc().role == 'dev');
+    }
+    function okSize(){ return request.resource.size < 10 * 1024 * 1024; }   // 10MB
+    function okType(){
+      return request.resource.contentType.matches('image/.*')
+          || request.resource.contentType == 'application/pdf';
+    }
+
+    /* ── 근로자 제출 서류 ────────────────────────────────
+       본인만 올리고, 본인과 관리자만 열람 */
+    match /documents/{uid}/{file} {
+      allow read:   if signedIn() && (request.auth.uid == uid || isLead());
+      allow create: if signedIn() && request.auth.uid == uid && okSize() && okType();
+      allow update, delete: if false;          // 재제출은 새 파일로 (증빙 보존)
+    }
+
+    /* ── 구직자 지원 첨부 ────────────────────────────────
+       비회원이 올릴 수 있어야 하므로 쓰기는 열되, 열람은 관리자만 */
+    match /applications/{appId}/{file} {
+      allow read:   if isLead();
+      allow create: if okSize() && okType();
+      allow update, delete: if false;
+    }
+
+    /* 그 외 전부 차단 */
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

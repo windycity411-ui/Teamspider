@@ -815,9 +815,11 @@ if(me){
         <span style="flex:1"></span>
         <button class="btn btn-sm btn-p" id="uNew">근로자 추가</button></div>
       <div class="tablewrap"><table>
-        <thead><tr><th>이름</th><th>연락처</th><th>역할</th><th>직종</th><th class="n">단가</th><th>소속</th><th>상태</th><th></th></tr></thead>
+        <thead><tr><th>이름</th><th>아이디</th><th>연락처</th><th>역할</th><th>직종</th><th class="n">단가</th><th>소속</th><th>상태</th><th></th></tr></thead>
         <tbody>${us.map(u => `<tr class="${u.approved?'':'needs'}">
-          <td class="nowrap">${esc(u.name)}</td><td class="mini">${esc(u.phone)}</td>
+          <td class="nowrap">${esc(u.name)}</td>
+          <td class="mini">${esc(u.loginId || '-')}</td>
+          <td class="mini">${esc(u.phone)}</td>
           <td>${tag(u.role==='dev'?'t-no':u.role==='lead'?'t-wait':'t-off', ROLES[u.role].label)}</td>
           <td class="small">${esc(u.trade||'-')}</td>
           <td class="n">${u.unitRate?won(u.unitRate):'-'}</td>
@@ -848,7 +850,10 @@ if(me){
         .map(r => `<option value="${r}" ${u?.role===r?'selected':''}>${ROLES[r].label}</option>`).join('');
       const ok = await modal({
         title: u ? `${u.name} 정보 수정` : '근로자 추가',
-        body:`<div class="grid g2">
+        body:`${u?.loginId ? `<div class="field"><label class="f">아이디</label>
+                <input type="text" value="${esc(u.loginId)}" disabled>
+                <div class="hint">아이디는 변경할 수 없습니다. 비밀번호 분실 시 계정을 새로 만들어야 합니다.</div></div>` : ''}
+              <div class="grid g2">
                 <div class="field"><label class="f">이름</label><input type="text" id="un" value="${esc(u?.name||'')}"></div>
                 <div class="field"><label class="f">연락처</label><input type="tel" id="up" value="${esc(u?.phone||'')}"></div>
               </div>

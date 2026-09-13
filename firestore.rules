@@ -1,7 +1,7 @@
 rules_version = '2';
 
 /* ══════════════════════════════════════════════════════════
-   노가다의신 · Firestore 보안 규칙
+   팀 스파이더 · Firestore 보안 규칙
    ──────────────────────────────────────────────────────────
    역할  dev(개발자) > lead(직영팀장) > worker(근로자) > seeker(구직자)
    Firebase 콘솔 → Firestore → 규칙 에 붙여넣고 게시하십시오.
@@ -23,7 +23,10 @@ service cloud.firestore {
        본인 정보는 본인이 읽기/제한 수정, 승인·역할·단가는 관리자만 */
     match /users/{uid} {
       allow read:   if isMe(uid) || isLead();
-      allow create: if signedIn();                       // 가입 신청
+      // 가입 신청 — 본인 UID 로만, 근로자·승인대기 상태로만 생성 가능
+      allow create: if isMe(uid)
+                    && request.resource.data.role == 'worker'
+                    && request.resource.data.approved == false;
       allow update: if isDev()
                     || (isLead() && resource.data.part == myPart())
                     || (isMe(uid)

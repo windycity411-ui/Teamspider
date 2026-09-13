@@ -114,7 +114,7 @@
 
 <script type="module">
 import { store, todayISO, nowISO, hhmm, dow, ymOf } from './assets/store.js';
-import { DOC_TYPES, BOARDS, SETTINGS_DEFAULT } from './assets/config.js';
+import { DOC_TYPES, BOARDS, SETTINGS_DEFAULT, STORAGE, DEMO } from './assets/config.js';
 import { $, $$, esc, toast, modal, confirmBox, topbar, guard, showNoticePopup,
          sendMail, readFileAsURL, getPosition } from './assets/app.js';
 import { calcDay, splitHours, distanceM, won, gs } from './assets/gongsu.js';
@@ -360,7 +360,12 @@ if(me){
   async function renderDocs(){
     const mine = await store.list('documents', d => d.userId === me.id);
     const miss = DOC_TYPES.filter(t => t.required && !mine.some(m => m.type === t.key && m.status !== 'reject'));
-    $('#docAlert').innerHTML = miss.length
+    if(!DEMO && !STORAGE){
+      $('#docAlert').innerHTML =
+        `<div class="banner b-caution"><span><b>서류 제출이 아직 열리지 않았습니다.</b><br>
+         파일 보관소(Storage) 설정이 끝나면 이 화면에서 바로 제출할 수 있습니다.
+         그때까지는 팀장에게 직접 전달해 주십시오.</span></div>`;
+    }else $('#docAlert').innerHTML = miss.length
       ? `<div class="banner b-alert"><span><b>미제출 ${miss.length}건</b> — ${miss.map(m=>m.label).join(', ')}</span></div>`
       : `<div class="banner b-ok">필수 서류를 모두 제출하였습니다.</div>`;
 
@@ -386,6 +391,12 @@ if(me){
   }
 
   async function upload(typeKey){
+    if(!DEMO && !STORAGE){
+      return modal({ title:'서류 제출 준비 중',
+        body:`<p>파일 보관소(Storage) 설정이 아직 끝나지 않아 제출을 받을 수 없습니다.</p>
+              <p class="small muted">설정이 완료되면 별도 안내 없이 바로 열립니다.</p>`,
+        actions:[{ label:'확인', value:true, cls:'btn-p' }] });
+    }
     const t = DOC_TYPES.find(x => x.key === typeKey);
     const ok = await modal({
       title:`${t.label} 제출`,
@@ -404,10 +415,12 @@ if(me){
     if(!ok) return;
 
     const f = window.__f;
-    const url = await readFileAsURL(f);
+    const ext = (f.name.split('.').pop() || 'bin').toLowerCase();
+    const up = await store.uploadFile(`documents/${me.id}/${typeKey}-${Date.now()}.${ext}`, f);
     const doc = await store.add('documents', {
       userId: me.id, type: typeKey, status:'wait',
-      fileName: f.name, fileUrl: url, submittedAt: nowISO(), mailStatus:'queued'
+      fileName: f.name, fileUrl: up.url, filePath: up.path,
+      submittedAt: nowISO(), mailStatus:'queued'
     });
 
     const res = await sendMail({
@@ -420,7 +433,7 @@ if(me){
         `서류 : ${t.label}`,
         `제출일시 : ${new Date().toLocaleString('ko-KR')}`
       ],
-      files:[{ fileName:f.name, url:'' }]
+      files:[{ fileName:f.name, url: up.url }]
     });
     await store.update('documents', doc.id, { mailStatus: res.ok ? 'sent' : 'fail', mailedAt: nowISO() });
     toast(res.ok ? '제출되었습니다. 담당 부서로 전달되었습니다.' : '제출되었습니다. 메일 발송은 대기 중입니다.');
