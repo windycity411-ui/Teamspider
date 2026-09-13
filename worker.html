@@ -97,8 +97,9 @@
   <section id="v-jobs" class="stack" hidden>
     <div class="panel">
       <div class="panel-h"><h3>채용 공고</h3></div>
-      <ul class="list" id="jobList"></ul>
+      <ul class="list" id="jobList" style="padding:14px 14px 4px"></ul>
     </div>
+    <div class="banner b-warn">아는 분에게 공고 링크를 보내면 로그인 없이 바로 지원할 수 있습니다.</div>
   </section>
 
 </main>
@@ -435,9 +436,10 @@ if(me){
 
     const posts = (await store.list('posts', p => p.board === board && !p.hidden))
       .sort((a,b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    const DAY = 86400000, now = Date.now();
     $('#postList').innerHTML = posts.map(p => `
       <li data-post="${p.id}" style="cursor:pointer">
-        <div class="li-t">${esc(p.title)}</div>
+        <div class="li-t">${now - new Date(p.createdAt).getTime() < DAY*2 ? '<span class="new">NEW</span>' : ''}${esc(p.title)}</div>
         <div class="li-m">${esc(p.anonymous ? '익명' : p.authorName)} · ${String(p.createdAt).slice(5,10).replace('-','.')}</div>
       </li>`).join('') || '<li class="muted small">게시글이 없습니다.</li>';
 
@@ -478,16 +480,22 @@ if(me){
 
   /* ══════════════ 공고 ══════════════ */
   async function renderJobs(){
-    const jobs = (await store.list('jobs', j => j.open));
+    const jobs = (await store.list('jobs')).sort((a,b) => (b.open?1:0)-(a.open?1:0));
     $('#jobList').innerHTML = jobs.map(j => `
-      <li>
-        <div class="li-t">${esc(j.title)}</div>
-        <div class="row" style="gap:6px;margin:5px 0">
-          <span class="tag t-info">${esc(j.trade)}</span>
-          <span class="tag t-off">${esc(j.count)}명</span>
-          <span class="tag t-off">${esc(j.period)}</span>
+      <li style="padding:0;border:0;margin-bottom:10px">
+        <div class="jobcard ${j.open?'':'closed'}">
+          <div class="row" style="gap:6px">
+            <span class="tag t-info">${esc(j.trade)}</span>
+            <span class="tag t-off">${esc(j.count)}명</span>
+            <span class="tag t-off">${esc(j.period)}</span>
+            ${j.open?'':'<span class="tag t-off">마감</span>'}
+          </div>
+          <div class="t">${esc(j.title)}</div>
+          <div class="foot">
+            <span class="pay">${won(j.rate)}<em> 원 / 공수</em></span>
+            <span class="mono" style="font-size:11.5px;color:var(--ink-3)">${esc(j.contact)}</span>
+          </div>
         </div>
-        <div class="li-m">${won(j.rate)}원 / 1공수 · 문의 ${esc(j.contact)}</div>
       </li>`).join('') || '<li class="muted small">등록된 공고가 없습니다.</li>';
   }
 
