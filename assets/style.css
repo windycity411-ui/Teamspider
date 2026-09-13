@@ -181,6 +181,10 @@ input[type=file]{font-size:13px; font-family:var(--sans)}
 
 /* ── 표 ─────────────────────────────── */
 .tablewrap{overflow-x:auto; border:1px solid var(--line); background:var(--surface)}
+/* 표 안의 글자는 줄바꿈하지 않고 가로 스크롤로 넘김 — 좁은 화면에서 글자가
+   세로로 눌려 읽을 수 없게 되는 것을 막는다. */
+.tablewrap th,.tablewrap td{white-space:nowrap}
+.tablewrap td.wrap{white-space:normal; min-width:180px}
 table{border-collapse:collapse; width:100%; font-size:13.5px}
 th,td{padding:9px 13px; text-align:left; border-bottom:1px solid var(--line); vertical-align:middle}
 thead th{background:var(--surface-2); font-weight:700; font-size:12px; white-space:nowrap; position:sticky; top:0; z-index:1; border-bottom:1px solid var(--line-strong)}
@@ -261,6 +265,17 @@ tfoot tr td{background:var(--surface-2); font-weight:700; border-top:2px solid v
   .card,.panel-b{padding:14px}
   .stat .v{font-size:23px}
   th,td{padding:8px 10px}
+}
+
+/* ── 좁은 화면 상단바 ───────────────── */
+@media (max-width:480px){
+  .topbar-in{gap:8px}
+  .brand{gap:8px}
+  .brand .wm b{font-size:16px; white-space:nowrap}
+  .brand .wm i{display:none}
+  .whoami{gap:6px; font-size:12.5px}
+  .whoami .nm{white-space:nowrap}
+  .topbar .btn-sm{padding:5px 9px}
 }
 
 /* ── 조치 필요 행 ───────────────────── */
