@@ -1,0 +1,10 @@
+{
+  "name": "teamspider-functions",
+  "description": "팀 스파이더 — 서류 자동발송 Cloud Function",
+  "main": "index.js",
+  "engines": { "node": "20" },
+  "dependencies": {
+    "firebase-functions": "^5.0.0"
+  },
+  "private": true
+}
