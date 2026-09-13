@@ -56,7 +56,7 @@ if(me){
 
   /* ── 탭 구성 ────────────────────────── */
   const TABS = [
-    ['dash','대시보드'], ['att','출역 관리'], ['calc','공수계산기'], ['docs','서류함'],
+    ['dash','대시보드'], ['att','출퇴근 관리'], ['calc','공수계산기'], ['docs','서류함'],
     ['notice','공지'], ['board','게시판'], ['jobs','구인'], ['users','근로자'],
     ...(isDev ? [['set','기준정보']] : [])
   ];
@@ -124,11 +124,11 @@ if(me){
           <h2 style="font-size:19px">${esc(site.name)} · ${today.replace(/-/g,'. ')} (${dow(today)})</h2>
           <p class="mini">${isDev ? '전체 현장' : me.part + ' 범위'} · ${esc(ROLES[me.role].label)}</p>
         </div>
-        <button class="btn btn-sm" id="goAtt">출역 관리로 이동</button>
+        <button class="btn btn-sm" id="goAtt">출퇴근 관리로 이동</button>
       </div>
 
       <div class="grid g4 sec">
-        <div class="stat"><span class="k">금일 출역</span><span class="v">${att.filter(a=>a.checkIn).length}</span><span class="u">/ ${ws.length}명</span></div>
+        <div class="stat"><span class="k">금일 출퇴근</span><span class="v">${att.filter(a=>a.checkIn).length}</span><span class="u">/ ${ws.length}명</span></div>
         <div class="stat"><span class="k">금일 공수</span><span class="v">${gs(gsum)}</span><span class="u">공수</span></div>
         <div class="stat hot"><span class="k">금일 인건비</span><span class="v">${won(cost)}</span><span class="u">원</span></div>
         <div class="stat ${pend.length?'bad':''}"><span class="k">승인 대기</span><span class="v">${pend.length}</span><span class="u">건</span></div>
@@ -146,7 +146,7 @@ if(me){
           </ul>
         </div>
         <div class="panel">
-          <div class="panel-h"><h3>금일 출역 현황</h3></div>
+          <div class="panel-h"><h3>금일 출퇴근 현황</h3></div>
           <div class="tablewrap" style="border:0;border-radius:0">
             <table>
               <thead><tr><th>이름</th><th>직종</th><th>출근</th><th>퇴근</th><th>상태</th></tr></thead>
@@ -171,7 +171,7 @@ if(me){
     $('#goAtt').onclick = () => go('att');
   }
 
-  /* ══════════════ 2. 출역 관리 ══════════════ */
+  /* ══════════════ 2. 출퇴근 관리 ══════════════ */
   let attDate = todayISO();
   async function renderAtt(){
     const ws = await workers();
@@ -353,7 +353,7 @@ if(me){
               <div class="field"><label class="f" for="cgh">야간(h)</label><input type="number" id="cgh" value="0" step="0.5"></div>
             </div>
             <div class="grid g2">
-              <div class="field"><label class="f" for="cmd">당월 출역일수</label><input type="number" id="cmd" value="3" min="0"></div>
+              <div class="field"><label class="f" for="cmd">당월 출퇴근일수</label><input type="number" id="cmd" value="3" min="0"></div>
               <div class="field" style="display:flex;align-items:flex-end;gap:14px;padding-bottom:9px">
                 <label><input type="checkbox" id="chol"> <span class="small">휴일</span></label>
                 <label><input type="checkbox" id="calw" checked> <span class="small">수당</span></label>
@@ -449,7 +449,7 @@ if(me){
           <td class="n">${won(r.calc.gross)}</td>
           <td class="n">−${won(r.calc.deductions.total)}</td>
           <td class="n">${won(r.calc.net)}</td></tr>`).join('')
-          || '<tr><td colspan="6" class="muted small">해당 일자 출역 기록이 없습니다.</td></tr>'}</tbody>
+          || '<tr><td colspan="6" class="muted small">해당 일자 출퇴근 기록이 없습니다.</td></tr>'}</tbody>
         ${results.length ? `<tfoot><tr class="total"><td colspan="2">합계 ${results.length}명</td>
           <td class="n">${gs(sum.gongsu)}</td><td class="n">${won(sum.gross)}</td>
           <td class="n">−${won(sum.deduction)}</td><td class="n">${won(sum.net)}</td></tr></tfoot>` : ''}`;
@@ -600,7 +600,7 @@ if(me){
               <div class="hd" style="color:var(--accent)">미확인 ${unread.length}명</div>
               <div class="names">${esc(unread.join(' · ') || '없음')}</div>
               ${sel.mustConfirm && unread.length
-                ? '<div class="banner b-alert" style="margin-top:12px">확인 필수 공지는 미확인자가 로그인할 때마다 팝업이 다시 뜹니다. 출역 전 확인 여부를 직접 챙겨야 하는 항목입니다.</div>'
+                ? '<div class="banner b-alert" style="margin-top:12px">확인 필수 공지는 미확인자가 로그인할 때마다 팝업이 다시 뜹니다. 출퇴근 전 확인 여부를 직접 챙겨야 하는 항목입니다.</div>'
                 : ''}
             </div>`
           : '<div class="panel-b muted small">공지를 선택하면 확인자 명단이 표시됩니다.</div>'}
@@ -839,7 +839,7 @@ if(me){
       toast('승인되었습니다.'); renderUsers();
     });
     $$('[data-ur]').forEach(b => b.onclick = async () => {
-      if(!await confirmBox('계정 삭제','출역 기록은 남습니다. 계정을 삭제하시겠습니까?','삭제')) return;
+      if(!await confirmBox('계정 삭제','출퇴근 기록은 남습니다. 계정을 삭제하시겠습니까?','삭제')) return;
       await store.remove('users', b.dataset.ur); renderUsers();
     });
     $$('[data-ue]').forEach(b => b.onclick = () => editUser(us.find(u => u.id === b.dataset.ue)));

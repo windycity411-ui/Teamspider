@@ -35,7 +35,7 @@ service cloud.firestore {
       allow delete: if isDev();
     }
 
-    /* ── 출역 ───────────────────────────────────────────
+    /* ── 출퇴근 ───────────────────────────────────────────
        근로자는 본인 기록 생성/퇴근 기록만, 수정·승인은 관리자 */
     match /attendance/{id} {
       allow read:   if isLead() || isMe(resource.data.userId);

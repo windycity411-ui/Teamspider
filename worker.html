@@ -52,13 +52,13 @@
   <!-- 내 공수 -->
   <section id="v-my" class="stack" hidden>
     <div class="grid g3">
-      <div class="stat"><span class="k">당월 출역</span><span class="v" id="mDays">0</span><span class="u">일</span></div>
+      <div class="stat"><span class="k">당월 출퇴근</span><span class="v" id="mDays">0</span><span class="u">일</span></div>
       <div class="stat"><span class="k">당월 공수</span><span class="v" id="mGongsu">0</span><span class="u">공수</span></div>
       <div class="stat hot"><span class="k">예상 실지급</span><span class="v" id="mNet">0</span><span class="u">원</span></div>
     </div>
     <div id="insNotice"></div>
     <div class="panel">
-      <div class="panel-h"><h3 id="calTitle">출역 달력</h3></div>
+      <div class="panel-h"><h3 id="calTitle">출퇴근 달력</h3></div>
       <div class="panel-b">
         <div class="cal" id="cal"></div>
         <p class="hint" style="margin-top:10px">날짜를 누르면 그날의 계산 명세를 볼 수 있습니다.</p>
@@ -284,13 +284,13 @@ if(me){
     $('#mDays').textContent   = days;
     $('#mGongsu').textContent = gs(gTotal);
     $('#mNet').textContent    = won(net);
-    $('#calTitle').textContent = `${ym.replace('-','년 ')}월 출역 달력`;
+    $('#calTitle').textContent = `${ym.replace('-','년 ')}월 출퇴근 달력`;
 
     const need = S.pensionMinDays || 8;
     $('#insNotice').innerHTML = days >= need
-      ? `<div class="banner b-info">당월 출역 ${days}일 — 국민연금·건강보험 적용 대상입니다.</div>`
+      ? `<div class="banner b-info">당월 출퇴근 ${days}일 — 국민연금·건강보험 적용 대상입니다.</div>`
       : (days === need - 1
-        ? `<div class="banner b-warn">당월 출역 ${days}일 — 1일 더 출역하면 국민연금·건강보험이 당월 전체에 소급 적용됩니다.</div>`
+        ? `<div class="banner b-warn">당월 출퇴근 ${days}일 — 1일 더 나오면 국민연금·건강보험이 당월 전체에 소급 적용됩니다.</div>`
         : '');
 
     // 달력
